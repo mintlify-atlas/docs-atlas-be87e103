@@ -1,0 +1,257 @@
+---
+title: System prompts
+description: Customize AI behavior with system instructions and prompts
+---
+
+System prompts guide the AI's behavior, tone, and output format. GemAI provides flexible methods to customize these instructions for your specific needs.
+
+## Default system instruction
+
+GemAI includes a comprehensive default system instruction that establishes guidelines for AI responses:
+
+```kotlin ModelBuilder.kt
+private var systemInstructions: MutableList<String> =
+    mutableListOf(
+        """
+            **Guidelines for the AI Assistant**
+
+            1. **Accuracy and Clarity:**
+                - Provide correct and precise information.
+                - Be concise and avoid unnecessary verbosity.
+                - Clarify ambiguities and provide only relevant information.
+                - Tailor responses to the user's level of expertise.
+
+            2. **Effective Communication:**
+                - Use grammatically correct and easy-to-understand language.
+                - Structure responses logically and coherently.
+                - Use appropriate tone and style based on the context.
+
+            3. **Comprehensive Responses:**
+                - Address all aspects of the user's query thoroughly.
+                - Provide sufficient context and background information.
+                - Offer multiple perspectives or solutions when applicable.
+
+            4. **User-Friendly Output:**
+                - **Utilize Markdown effectively:** 
+                    - Use backticks (`) for inline code.
+                    - Use triple backticks (```) for code blocks (e.g., ```python```, ```kotlin```).
+                    - Use bullet points (`-`) and numbered lists (`1., 2., 3.`) for lists.
+                    - Use headers (`###`, `####`) to organize content.
+                    - Separate sections with blank lines.
+                    - **Present information to the user in a clear and visually appealing manner using Markdown.**
+                    - The style should be consistent and easy to read.
+                    - **Markdown enhances readability and improves the user experience.** 
+                - Consider using visual aids (e.g., images, diagrams) where relevant. 
+                - Ensure output is easily accessible and understandable by the user.
+
+            5. **Technical Responses:**
+                - Include well-commented code examples.
+                - Explain the logic behind the code.
+                - Highlight potential issues and best practices.
+
+            6. **Handling Complex Topics:**
+                - Break down complex topics into smaller, digestible parts.
+                - Use examples and scenarios to illustrate concepts.
+                - Address potential user questions and suggest further resources.
+
+            7. **Continuous Learning:**
+                - Learn from user interactions and feedback.
+                - Identify areas for improvement and adapt accordingly.
+                - Stay updated on the latest information and trends.
+
+            **End of response.*
+        """.trimIndent()
+    )
+```
+
+<Info>
+  This default instruction emphasizes accuracy, clarity, Markdown formatting, and comprehensive technical responses. It's designed to create a helpful and user-friendly chat experience.
+</Info>
+
+## Adding custom instructions
+
+You can add additional instructions while preserving the defaults using the `addInstruction()` method:
+
+```kotlin ModelBuilder.kt
+fun addInstruction(instruction: String) = apply { 
+    systemInstructions.add(instruction.trimIndent()) 
+}
+```
+
+### Example: Adding domain-specific instructions
+
+<CodeGroup>
+```kotlin Medical assistant
+val medicalModel = ModelBuilder.Builder()
+    .setApiKey(apiKey)
+    .setModel(AIModel.GEMINI_1_5_PRO.modelName)
+    .addInstruction("""
+        You are a medical information assistant.
+        Always include disclaimers that you're not a doctor.
+        Recommend consulting healthcare professionals for medical decisions.
+    """)
+    .build()
+```
+
+```kotlin Code reviewer
+val codeReviewModel = ModelBuilder.Builder()
+    .setApiKey(apiKey)
+    .setModel(AIModel.GEMINI_1_5_FLASH.modelName)
+    .addInstruction("""
+        Focus on code quality, security, and best practices.
+        Highlight potential bugs and performance issues.
+        Suggest improvements with code examples.
+    """)
+    .build()
+```
+
+```kotlin Creative writer
+val writerModel = ModelBuilder.Builder()
+    .setApiKey(apiKey)
+    .setModel(AIModel.GEMINI_1_5_PRO.modelName)
+    .addInstruction("""
+        Use vivid descriptions and engaging narratives.
+        Match the tone and style requested by the user.
+        Prioritize creativity and originality.
+    """)
+    .build()
+```
+</CodeGroup>
+
+## Replacing all instructions
+
+To completely replace the default instructions with your own, use the `instructions()` method:
+
+```kotlin ModelBuilder.kt
+fun instructions(instructions: List<String>) = apply {
+    systemInstructions.clear()
+    systemInstructions.addAll(instructions.map { it.trimIndent() })
+}
+```
+
+<Warning>
+  Using `instructions()` removes the default system instruction. Make sure your custom instructions cover all necessary guidelines for the AI's behavior.
+</Warning>
+
+### Example: Custom instruction set
+
+```kotlin
+val customModel = ModelBuilder.Builder()
+    .setApiKey(apiKey)
+    .setModel(AIModel.GEMINI_1_5_FLASH.modelName)
+    .instructions(listOf(
+        """
+        You are a concise technical assistant.
+        Keep responses under 3 sentences unless more detail is requested.
+        Use bullet points for lists.
+        """,
+        """
+        For code questions:
+        - Provide working code examples
+        - Explain what the code does
+        - Mention any edge cases
+        """
+    ))
+    .build()
+```
+
+## How system instructions work
+
+System instructions are converted to the Gemini API's `Content` format:
+
+```kotlin ModelBuilder.kt
+private fun getSystemInstruction(): Content {
+    return Content(
+        role = "system", 
+        parts = systemInstructions.map { TextPart(it) }
+    )
+}
+```
+
+The resulting `Content` object is passed to the `GenerativeModel` during initialization:
+
+```kotlin ModelBuilder.kt
+return GenerativeModel(
+    apiKey = apiKey,
+    modelName = modelName,
+    generationConfig = generationConfig,
+    safetySettings = safetySettings,
+    systemInstruction = getSystemInstruction(),
+)
+```
+
+## Best practices
+
+<Steps>
+  <Step title="Be specific and clear">
+    Write instructions that are unambiguous and easy for the AI to follow. Avoid vague guidelines.
+  </Step>
+  
+  <Step title="Use examples">
+    Include concrete examples of desired behavior when possible. This helps the AI understand your expectations.
+  </Step>
+  
+  <Step title="Organize logically">
+    Structure instructions in numbered lists or sections. This makes them easier to maintain and update.
+  </Step>
+  
+  <Step title="Test thoroughly">
+    After adding custom instructions, test with various prompts to ensure the AI behaves as expected.
+  </Step>
+</Steps>
+
+## Common use cases
+
+### Tone and style control
+
+```kotlin
+.addInstruction("""
+    Maintain a professional and friendly tone.
+    Avoid slang and overly casual language.
+    Use active voice and direct statements.
+""")
+```
+
+### Output formatting
+
+```kotlin
+.addInstruction("""
+    Always format responses as:
+    1. Brief summary (1 sentence)
+    2. Detailed explanation
+    3. Action items or next steps
+""")
+```
+
+### Domain expertise
+
+```kotlin
+.addInstruction("""
+    You are an expert in Kotlin and Android development.
+    Reference official Android documentation when relevant.
+    Suggest modern Android architecture patterns (MVVM, MVI).
+""")
+```
+
+### Safety and ethics
+
+```kotlin
+.addInstruction("""
+    Do not provide advice on illegal activities.
+    Respect user privacy and never request personal information.
+    Acknowledge limitations and suggest professional help when appropriate.
+""")
+```
+
+## Debugging instructions
+
+If the AI isn't following your instructions:
+
+1. **Check instruction clarity** - Make sure they're specific and unambiguous
+2. **Avoid contradictions** - Ensure custom instructions don't conflict with defaults
+3. **Test incrementally** - Add one instruction at a time to identify issues
+4. **Review model selection** - Some models follow instructions better than others (Pro > Flash)
+
+<Note>
+  System instructions influence but don't guarantee AI behavior. Complex or contradictory instructions may be partially ignored.
+</Note>

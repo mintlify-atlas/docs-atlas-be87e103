@@ -1,0 +1,218 @@
+---
+title: Model selection
+description: Choose and configure the right Gemini AI model for your needs
+---
+
+GemAI supports multiple Google Gemini models, each with different capabilities and performance characteristics. This guide covers available models and how to configure them.
+
+## Available models
+
+GemAI provides three Gemini model options through the `AIModel` enum:
+
+```kotlin UserConfig.kt
+enum class AIModel(val modelName: String, val number: Int) {
+    GEMINI_2_0_FLASH_EXP("gemini-2.0-flash-exp", 0),
+    GEMINI_1_5_FLASH("gemini-1.5-flash", 1),
+    GEMINI_1_5_PRO("gemini-1.5-pro-latest", 2);
+
+    companion object {
+        fun fromNum(id: Int?): AIModel {
+            return when (id) {
+                0 -> GEMINI_2_0_FLASH_EXP
+                1 -> GEMINI_1_5_FLASH
+                2 -> GEMINI_1_5_PRO
+                else -> GEMINI_1_5_FLASH
+            }
+        }
+    }
+}
+```
+
+### Gemini 2.0 Flash (Experimental)
+
+<ParamField path="GEMINI_2_0_FLASH_EXP" type="AIModel">
+  **Model name:** `gemini-2.0-flash-exp`
+  
+  The latest experimental version with cutting-edge features. Best for testing new capabilities and getting early access to improvements.
+</ParamField>
+
+<Warning>
+  Experimental models may have breaking changes or unexpected behavior. Use with caution in production environments.
+</Warning>
+
+### Gemini 1.5 Flash
+
+<ParamField path="GEMINI_1_5_FLASH" type="AIModel" default>
+  **Model name:** `gemini-1.5-flash`
+  
+  The default model optimized for speed and efficiency. Ideal for most chat applications with fast response times and lower costs.
+</ParamField>
+
+<Info>
+  This is the default model used by GemAI. It provides the best balance between performance and quality for everyday conversations.
+</Info>
+
+### Gemini 1.5 Pro
+
+<ParamField path="GEMINI_1_5_PRO" type="AIModel">
+  **Model name:** `gemini-1.5-pro-latest`
+  
+  The most capable model with enhanced reasoning and understanding. Best for complex tasks requiring deeper analysis and more nuanced responses.
+</ParamField>
+
+## Selecting a model
+
+You can configure the model using the `ModelBuilder.setModel()` method:
+
+```kotlin ModelBuilder.kt
+val model = ModelBuilder.Builder()
+    .setApiKey("your-api-key")
+    .setModel(AIModel.GEMINI_1_5_PRO.modelName)
+    .build()
+```
+
+The `setModel()` method accepts a string parameter:
+
+```kotlin ModelBuilder.kt
+fun setModel(modelName: String) = apply { 
+    this.modelName = modelName 
+}
+```
+
+## Persisting model selection
+
+GemAI persists your model selection in DataStore so it remains active across app sessions:
+
+```kotlin DatastoreRepositoryImpl.kt
+override suspend fun saveModel(model: AIModel) {
+    dataStore.updateData { config ->
+        config.toBuilder()
+            .setModel(com.sarath.gem.AIModel.forNumber(model.number))
+            .build()
+    }
+}
+```
+
+To retrieve the saved model:
+
+```kotlin DatastoreRepositoryImpl.kt
+override suspend fun getModel(): AIModel {
+    return AIModel.fromNum(dataStore.data.firstOrNull()?.model?.number)
+}
+```
+
+## Generation configuration
+
+Beyond selecting a model, you can fine-tune its behavior using generation parameters. The `ModelBuilder` provides a `setConfig()` method:
+
+```kotlin ModelBuilder.kt
+fun setConfig(configure: GenerationConfig.Builder.() -> Unit) = apply {
+    generationConfig = generationConfig(configure)
+}
+```
+
+### Default configuration
+
+GemAI uses these default generation settings:
+
+```kotlin ModelBuilder.kt
+private var generationConfig = generationConfig {
+    temperature = 0.6f
+    topP = 0.8f
+    topK = 30
+    stopSequences = listOf("End of response", "STOP")
+}
+```
+
+### Configuration parameters
+
+<ParamField path="temperature" type="Float" default="0.6">
+  Controls randomness in responses. Lower values (0.0-0.5) make output more focused and deterministic. Higher values (0.5-2.0) increase creativity and randomness.
+</ParamField>
+
+<ParamField path="topP" type="Float" default="0.8">
+  Controls diversity via nucleus sampling. The model considers tokens with cumulative probability up to this value. Range: 0.0 to 1.0.
+</ParamField>
+
+<ParamField path="topK" type="Int" default="30">
+  Limits the number of highest probability tokens to consider. Lower values make responses more focused, higher values add variety.
+</ParamField>
+
+<ParamField path="stopSequences" type="List<String>" default='["End of response", "STOP"]'>
+  Strings that signal the model to stop generating. Useful for controlling response length and format.
+</ParamField>
+
+## Custom configuration example
+
+Here's how to customize generation settings for different use cases:
+
+<CodeGroup>
+```kotlin Creative responses
+val creativeModel = ModelBuilder.Builder()
+    .setApiKey(apiKey)
+    .setModel(AIModel.GEMINI_1_5_PRO.modelName)
+    .setConfig {
+        temperature = 1.2f
+        topP = 0.95f
+        topK = 50
+    }
+    .build()
+```
+
+```kotlin Focused responses
+val focusedModel = ModelBuilder.Builder()
+    .setApiKey(apiKey)
+    .setModel(AIModel.GEMINI_1_5_FLASH.modelName)
+    .setConfig {
+        temperature = 0.2f
+        topP = 0.5f
+        topK = 10
+    }
+    .build()
+```
+
+```kotlin Balanced (default)
+val balancedModel = ModelBuilder.Builder()
+    .setApiKey(apiKey)
+    .setModel(AIModel.GEMINI_1_5_FLASH.modelName)
+    .setConfig {
+        temperature = 0.6f
+        topP = 0.8f
+        topK = 30
+    }
+    .build()
+```
+</CodeGroup>
+
+## Building the model
+
+After configuration, call `build()` to create the `GenerativeModel` instance:
+
+```kotlin ModelBuilder.kt
+fun build(): GenerativeModel {
+    require(apiKey.isNotBlank()) { "API key must not be blank" }
+    require(modelName.isNotBlank()) { "Model name must not be blank" }
+    return GenerativeModel(
+        apiKey = apiKey,
+        modelName = modelName,
+        generationConfig = generationConfig,
+        safetySettings = safetySettings,
+        systemInstruction = getSystemInstruction(),
+    )
+}
+```
+
+<Note>
+  The `build()` method validates that both `apiKey` and `modelName` are not blank before creating the model instance.
+</Note>
+
+## Choosing the right model
+
+Use this guide to select the appropriate model:
+
+| Use case | Recommended model | Why |
+|----------|------------------|-----|
+| Quick chat responses | Gemini 1.5 Flash | Fastest response times, lowest cost |
+| Complex reasoning | Gemini 1.5 Pro | Better at multi-step logic and analysis |
+| Testing new features | Gemini 2.0 Flash Exp | Access to latest capabilities |
+| Production apps | Gemini 1.5 Flash or Pro | Stable, well-tested models |

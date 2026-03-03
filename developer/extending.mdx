@@ -1,0 +1,668 @@
+---
+title: Extending GemAI
+description: Learn how to add new features, database entities, use cases, and UI screens while maintaining Clean Architecture principles
+---
+
+GemAI's architecture makes it straightforward to add new features. This guide walks you through common extension scenarios while preserving architectural integrity.
+
+## Adding a new use case
+
+Use cases encapsulate business logic. Here's how to add one:
+
+<Steps>
+  <Step title="Define the use case class">
+    Create a new file in the appropriate domain package:
+
+    ```kotlin domain/use_case/chat/GetMessageByIdUseCase.kt
+    package com.sarath.gem.domain.use_case.chat
+
+    import com.sarath.gem.core.base.BaseUseCase
+    import com.sarath.gem.domain.RequestError
+    import com.sarath.gem.domain.Result
+    import com.sarath.gem.domain.model.Message
+    import com.sarath.gem.domain.repository.ChatRepository
+    import javax.inject.Inject
+
+    /**
+     * Retrieves a specific message by its ID.
+     *
+     * @property chatRepository Repository for accessing chat data.
+     */
+    class GetMessageByIdUseCase @Inject constructor(
+        private val chatRepository: ChatRepository
+    ) : BaseUseCase<Long, Result<Message?, RequestError>> {
+        
+        override suspend fun perform(params: Long): Result<Message?, RequestError> {
+            return chatRepository.getMessageById(params)
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Add repository method">
+    Update the repository interface:
+
+    ```kotlin domain/repository/ChatRepository.kt
+    interface ChatRepository {
+        // ... existing methods
+        
+        suspend fun getMessageById(messageId: Long): Result<Message?, RequestError>
+    }
+    ```
+
+    Then implement it in the repository:
+
+    ```kotlin data/ChatRepositoryImpl.kt
+    class ChatRepositoryImpl @Inject constructor(
+        private val messageDao: MessageDao,
+        // ... other dependencies
+    ) : ChatRepository {
+        
+        override suspend fun getMessageById(messageId: Long): Result<Message?, RequestError> {
+            return try {
+                val entity = messageDao.getMessageById(messageId)
+                Result.Success(entity?.toDomain())
+            } catch (e: Exception) {
+                Result.Error(RequestError.DatabaseError)
+            }
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Inject into ViewModel">
+    Add the use case to your ViewModel's constructor:
+
+    ```kotlin presentation/screen/chat/viewmodel/ChatViewModel.kt
+    @HiltViewModel
+    class ChatViewModel @Inject constructor(
+        private val createConversationUseCase: CreateConversationUseCase,
+        private val sendMessageUseCase: SendMessageUseCase,
+        private val getMessageByIdUseCase: GetMessageByIdUseCase, // New use case
+        // ... other use cases
+    ) : BaseViewModel<ChatUIState, ChatUIEvent, ChatUIAction>() {
+        
+        private fun loadMessage(messageId: Long) {
+            viewModelScope.launch {
+                getMessageByIdUseCase.perform(messageId)
+                    .onSuccess { message ->
+                        // Handle success
+                    }
+                    .onError { error ->
+                        // Handle error
+                    }
+            }
+        }
+    }
+    ```
+  </Step>
+</Steps>
+
+<Info>
+  Hilt automatically provides the use case to your ViewModel. No additional configuration needed!
+</Info>
+
+## Adding a new database entity
+
+Follow these steps to add a new table to the database:
+
+<Steps>
+  <Step title="Create the entity class">
+    Define your Room entity:
+
+    ```kotlin data/local/model/TagEntity.kt
+    package com.sarath.gem.data.local.model
+
+    import androidx.room.Entity
+    import androidx.room.ForeignKey
+    import androidx.room.Index
+    import androidx.room.PrimaryKey
+
+    @Entity(
+        tableName = "tags",
+        indices = [Index(value = ["conversationId"])],
+        foreignKeys = [
+            ForeignKey(
+                entity = ConversationEntity::class,
+                parentColumns = ["id"],
+                childColumns = ["conversationId"],
+                onDelete = ForeignKey.CASCADE
+            )
+        ]
+    )
+    data class TagEntity(
+        @PrimaryKey(autoGenerate = true) val id: Long = 0,
+        val conversationId: Long,
+        val name: String,
+        val color: String,
+        val timestamp: Long
+    )
+    ```
+  </Step>
+
+  <Step title="Create the DAO">
+    Extend `BaseDao` for common operations:
+
+    ```kotlin data/local/dao/TagDao.kt
+    package com.sarath.gem.data.local.dao
+
+    import androidx.room.Dao
+    import androidx.room.Query
+    import com.sarath.gem.core.base.BaseDao
+    import com.sarath.gem.data.local.model.TagEntity
+    import kotlinx.coroutines.flow.Flow
+
+    @Dao
+    interface TagDao : BaseDao<TagEntity> {
+        
+        @Query("SELECT * FROM tags WHERE conversationId = :conversationId")
+        fun getTagsForConversation(conversationId: Long): Flow<List<TagEntity>>
+        
+        @Query("SELECT * FROM tags WHERE id = :tagId")
+        suspend fun getTagById(tagId: Long): TagEntity?
+        
+        @Query("DELETE FROM tags WHERE conversationId = :conversationId")
+        suspend fun deleteTagsForConversation(conversationId: Long)
+        
+        @Query("SELECT DISTINCT name FROM tags ORDER BY name ASC")
+        fun getAllTagNames(): Flow<List<String>>
+    }
+    ```
+  </Step>
+
+  <Step title="Create domain model and mapper">
+    Create the domain model:
+
+    ```kotlin domain/model/Tag.kt
+    package com.sarath.gem.domain.model
+
+    data class Tag(
+        val id: Long = 0,
+        val conversationId: Long,
+        val name: String,
+        val color: String,
+        val timestamp: Long
+    )
+    ```
+
+    Create the mapper:
+
+    ```kotlin data/local/mapper/TagMapper.kt
+    package com.sarath.gem.data.local.mapper
+
+    import com.sarath.gem.core.base.BaseMapper
+    import com.sarath.gem.data.local.model.TagEntity
+    import com.sarath.gem.domain.model.Tag
+
+    object TagMapper : BaseMapper<TagEntity, Tag> {
+        override fun mapToDomain(entity: TagEntity): Tag {
+            return with(entity) {
+                Tag(
+                    id = id,
+                    conversationId = conversationId,
+                    name = name,
+                    color = color,
+                    timestamp = timestamp
+                )
+            }
+        }
+
+        override fun mapToEntity(domain: Tag): TagEntity {
+            return with(domain) {
+                TagEntity(
+                    id = id,
+                    conversationId = conversationId,
+                    name = name,
+                    color = color,
+                    timestamp = timestamp
+                )
+            }
+        }
+    }
+
+    fun Tag.toEntity() = TagMapper.mapToEntity(this)
+    fun TagEntity.toDomain() = TagMapper.mapToDomain(this)
+    ```
+  </Step>
+
+  <Step title="Update AppDatabase">
+    Add the entity to the database and increment version:
+
+    ```kotlin data/local/AppDatabase.kt
+    @Database(
+        entities = [
+            ConversationEntity::class, 
+            MessageEntity::class, 
+            PromptEntity::class,
+            TagEntity::class  // Add new entity
+        ],
+        version = 2,  // Increment version
+        exportSchema = true,
+    )
+    abstract class AppDatabase : RoomDatabase() {
+        abstract fun conversationDao(): ConversationDao
+        abstract fun messageDao(): MessageDao
+        abstract fun promptDao(): PromptDao
+        abstract fun tagDao(): TagDao  // Add new DAO
+        
+        // ... rest of the code
+    }
+    ```
+  </Step>
+
+  <Step title="Provide DAO in Hilt module">
+    Update `AppModule.kt`:
+
+    ```kotlin di/AppModule.kt
+    @InstallIn(SingletonComponent::class)
+    @Module
+    object AppModule {
+        // ... existing providers
+        
+        @Provides
+        @Singleton
+        fun provideTagDao(database: AppDatabase): TagDao {
+            return database.tagDao()
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Handle database migration">
+    For production, add a proper migration:
+
+    ```kotlin AppDatabase.kt
+    val MIGRATION_1_2 = object : Migration(1, 2) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `tags` (
+                    `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    `conversationId` INTEGER NOT NULL,
+                    `name` TEXT NOT NULL,
+                    `color` TEXT NOT NULL,
+                    `timestamp` INTEGER NOT NULL,
+                    FOREIGN KEY(`conversationId`) REFERENCES `conversations`(`id`) 
+                    ON DELETE CASCADE
+                )
+                """.trimIndent()
+            )
+            database.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_tags_conversationId` ON `tags` (`conversationId`)"
+            )
+        }
+    }
+
+    private fun buildDatabase(context: Context): AppDatabase {
+        return Room.databaseBuilder(context, AppDatabase::class.java, "gemai.db")
+            .addMigrations(MIGRATION_1_2)  // Add migration
+            .addCallback(/* ... */)
+            .build()
+    }
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  Always increment the database version and provide a migration when changing the schema in production. During development, `fallbackToDestructiveMigration()` is acceptable.
+</Warning>
+
+## Creating a new UI screen
+
+Follow the MVVM pattern to add new screens:
+
+<Steps>
+  <Step title="Define UI state, events, and actions">
+    ```kotlin presentation/screen/tags/viewmodel/TagUIState.kt
+    package com.sarath.gem.presentation.screen.tags.viewmodel
+
+    import com.sarath.gem.core.base.UIAction
+    import com.sarath.gem.core.base.UIEvent
+    import com.sarath.gem.core.base.UIState
+    import com.sarath.gem.domain.model.Tag
+
+    data class TagUIState(
+        val tags: List<Tag>,
+        val isLoading: Boolean,
+        val selectedTag: Tag?
+    ) : UIState
+
+    sealed class TagUIEvent : UIEvent {
+        data class ShowError(val message: String) : TagUIEvent()
+        object TagCreated : TagUIEvent()
+    }
+
+    sealed class TagUIAction : UIAction {
+        data class CreateTag(val name: String, val color: String) : TagUIAction()
+        data class DeleteTag(val tagId: Long) : TagUIAction()
+        data class SelectTag(val tag: Tag) : TagUIAction()
+    }
+    ```
+  </Step>
+
+  <Step title="Create the ViewModel">
+    ```kotlin presentation/screen/tags/viewmodel/TagViewModel.kt
+    package com.sarath.gem.presentation.screen.tags.viewmodel
+
+    import androidx.lifecycle.viewModelScope
+    import com.sarath.gem.core.base.BaseViewModel
+    import com.sarath.gem.domain.use_case.tag.CreateTagUseCase
+    import com.sarath.gem.domain.use_case.tag.DeleteTagUseCase
+    import com.sarath.gem.domain.use_case.tag.GetTagsUseCase
+    import dagger.hilt.android.lifecycle.HiltViewModel
+    import kotlinx.coroutines.flow.collectLatest
+    import kotlinx.coroutines.launch
+    import javax.inject.Inject
+
+    @HiltViewModel
+    class TagViewModel @Inject constructor(
+        private val getTagsUseCase: GetTagsUseCase,
+        private val createTagUseCase: CreateTagUseCase,
+        private val deleteTagUseCase: DeleteTagUseCase
+    ) : BaseViewModel<TagUIState, TagUIEvent, TagUIAction>() {
+
+        override fun initialState(): TagUIState {
+            return TagUIState(
+                tags = emptyList(),
+                isLoading = false,
+                selectedTag = null
+            )
+        }
+
+        init {
+            loadTags()
+        }
+
+        override fun onActionEvent(action: TagUIAction) {
+            when (action) {
+                is TagUIAction.CreateTag -> createTag(action.name, action.color)
+                is TagUIAction.DeleteTag -> deleteTag(action.tagId)
+                is TagUIAction.SelectTag -> update { copy(selectedTag = action.tag) }
+            }
+        }
+
+        private fun loadTags() {
+            viewModelScope.launch {
+                getTagsUseCase.performStreaming()
+                    .collectLatest { tags ->
+                        update { copy(tags = tags, isLoading = false) }
+                    }
+            }
+        }
+
+        private fun createTag(name: String, color: String) {
+            update { copy(isLoading = true) }
+            viewModelScope.launch {
+                createTagUseCase.perform(CreateTagParams(name, color))
+                    .onSuccess {
+                        update { copy(isLoading = false) }
+                        sendOneTimeUIEvent(TagUIEvent.TagCreated)
+                    }
+                    .onError { error ->
+                        update { copy(isLoading = false) }
+                        sendOneTimeUIEvent(TagUIEvent.ShowError(error.message))
+                    }
+            }
+        }
+
+        private fun deleteTag(tagId: Long) {
+            viewModelScope.launch {
+                deleteTagUseCase.perform(tagId)
+            }
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Create the Composable screen">
+    ```kotlin presentation/screen/tags/TagScreen.kt
+    package com.sarath.gem.presentation.screen.tags
+
+    import androidx.compose.foundation.layout.*
+    import androidx.compose.foundation.lazy.LazyColumn
+    import androidx.compose.foundation.lazy.items
+    import androidx.compose.material3.*
+    import androidx.compose.runtime.*
+    import androidx.compose.ui.Modifier
+    import androidx.compose.ui.unit.dp
+    import androidx.hilt.navigation.compose.hiltViewModel
+    import com.sarath.gem.presentation.screen.tags.viewmodel.TagUIAction
+    import com.sarath.gem.presentation.screen.tags.viewmodel.TagUIEvent
+    import com.sarath.gem.presentation.screen.tags.viewmodel.TagViewModel
+
+    @Composable
+    fun TagScreen(
+        viewModel: TagViewModel = hiltViewModel()
+    ) {
+        val state by viewModel.uiState.collectAsState()
+
+        // Observe one-time events
+        LaunchedEffect(Unit) {
+            viewModel.uiEvent.collect { event ->
+                when (event) {
+                    is TagUIEvent.ShowError -> {
+                        // Show snackbar or toast
+                    }
+                    TagUIEvent.TagCreated -> {
+                        // Show success message
+                    }
+                }
+            }
+        }
+
+        Scaffold(
+            topBar = {
+                TopAppBar(title = { Text("Tags") })
+            },
+            floatingActionButton = {
+                FloatingActionButton(
+                    onClick = { /* Show create tag dialog */ }
+                ) {
+                    Icon(Icons.Default.Add, "Add Tag")
+                }
+            }
+        ) { padding ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                items(state.tags) { tag ->
+                    TagItem(
+                        tag = tag,
+                        onTagClick = { viewModel.onAction(TagUIAction.SelectTag(tag)) },
+                        onDeleteClick = { viewModel.onAction(TagUIAction.DeleteTag(tag.id)) }
+                    )
+                }
+            }
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Add navigation route">
+    ```kotlin navigation/graph/NavGraph.kt
+    @Composable
+    fun NavGraph(
+        navController: NavHostController,
+        startDestination: String = Routes.CHAT
+    ) {
+        NavHost(
+            navController = navController,
+            startDestination = startDestination
+        ) {
+            composable(Routes.CHAT) {
+                ChatScreen()
+            }
+            composable(Routes.TAGS) {  // Add new route
+                TagScreen()
+            }
+            // ... other routes
+        }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Best practices for extending
+
+<AccordionGroup>
+  <Accordion title="Follow the dependency rule">
+    Dependencies should point inward:
+    - Presentation → Domain ← Data
+    - Domain has no dependencies on outer layers
+    - Use interfaces in domain, implementations in data
+  </Accordion>
+
+  <Accordion title="Keep ViewModels thin">
+    - ViewModels should coordinate, not implement logic
+    - Move business logic to use cases
+    - Keep UI-related logic in Composables
+    
+    ```kotlin Good example
+    // ViewModel delegates to use case
+    private fun deleteChat(chatId: Long) {
+        viewModelScope.launch {
+            deleteChatUseCase.perform(chatId)
+                .onSuccess { /* handle success */ }
+        }
+    }
+    ```
+
+    ```kotlin Bad example
+    // ViewModel implements business logic
+    private fun deleteChat(chatId: Long) {
+        viewModelScope.launch {
+            val chat = repository.getChat(chatId)
+            if (chat.messages.isEmpty()) {
+                repository.deleteChat(chatId)
+            } else {
+                // Complex deletion logic here
+            }
+        }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Use dependency injection">
+    Always inject dependencies via constructors with Hilt:
+
+    ```kotlin Correct
+    @HiltViewModel
+    class MyViewModel @Inject constructor(
+        private val useCase: MyUseCase
+    ) : BaseViewModel<...>() { }
+    ```
+
+    Don't create dependencies manually or use service locators.
+  </Accordion>
+
+  <Accordion title="Handle errors consistently">
+    Use the `Result` type for operations that can fail:
+
+    ```kotlin Result handling
+    sealed class Result<out T, out E> {
+        data class Success<T>(val data: T) : Result<T, Nothing>()
+        data class Error<E>(val error: E) : Result<Nothing, E>()
+    }
+
+    // Usage
+    result
+        .onSuccess { data -> /* handle success */ }
+        .onError { error -> /* handle error */ }
+    ```
+  </Accordion>
+
+  <Accordion title="Write meaningful documentation">
+    Document public APIs, especially use cases and repositories:
+
+    ```kotlin
+    /**
+     * Retrieves all conversations for the current user.
+     *
+     * @return A [Flow] emitting the list of conversations, ordered by 
+     *         last message timestamp in descending order.
+     */
+    fun getConversations(): Flow<List<Conversation>>
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Testing new features
+
+When adding features, write tests for each layer:
+
+<CodeGroup>
+```kotlin Use case test
+class CreateConversationUseCaseTest {
+    private lateinit var useCase: CreateConversationUseCase
+    private lateinit var repository: ChatRepository
+
+    @Before
+    fun setup() {
+        repository = mockk()
+        useCase = CreateConversationUseCase(repository)
+    }
+
+    @Test
+    fun `perform creates conversation successfully`() = runTest {
+        val title = "Test Chat"
+        val expected = Conversation(id = 1, title = title)
+        
+        coEvery { repository.createConversation(title) } returns Result.Success(expected)
+        
+        val result = useCase.perform(title)
+        
+        assertTrue(result is Result.Success)
+        assertEquals(expected, (result as Result.Success).data)
+    }
+}
+```
+
+```kotlin ViewModel test
+class TagViewModelTest {
+    private lateinit var viewModel: TagViewModel
+    private lateinit var getTagsUseCase: GetTagsUseCase
+
+    @Before
+    fun setup() {
+        getTagsUseCase = mockk()
+        viewModel = TagViewModel(getTagsUseCase, mockk(), mockk())
+    }
+
+    @Test
+    fun `initial state has empty tags`() {
+        assertEquals(emptyList<Tag>(), viewModel.uiState.value.tags)
+        assertFalse(viewModel.uiState.value.isLoading)
+    }
+}
+```
+</CodeGroup>
+
+## Common extension patterns
+
+<CardGroup cols={2}>
+  <Card title="Add new AI capability" icon="sparkles">
+    Extend `SystemAIModel` or create a new AI model class extending `BaseAIModel`
+  </Card>
+  <Card title="Add user preferences" icon="sliders">
+    Create repository methods using DataStore for key-value storage
+  </Card>
+  <Card title="Add offline sync" icon="cloud-arrow-down">
+    Implement repository methods that check network state and sync with Room
+  </Card>
+  <Card title="Add analytics" icon="chart-line">
+    Create analytics use cases that ViewModels can call at key events
+  </Card>
+</CardGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture overview" icon="sitemap" href="/developer/architecture">
+    Review Clean Architecture principles
+  </Card>
+  <Card title="Core components" icon="puzzle-piece" href="/developer/core-components">
+    Deep dive into base classes and patterns
+  </Card>
+</CardGroup>

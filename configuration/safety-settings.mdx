@@ -1,0 +1,237 @@
+---
+title: Safety settings
+description: Configure content moderation and filtering for safe AI interactions
+---
+
+GemAI uses Google's safety settings to filter harmful content in AI responses. You can customize these settings to balance safety and flexibility based on your app's requirements.
+
+## Default safety settings
+
+By default, GemAI configures minimal content filtering:
+
+```kotlin ModelBuilder.kt
+private var safetySettings = listOf(
+    SafetySetting(HarmCategory.SEXUALLY_EXPLICIT, BlockThreshold.NONE)
+)
+```
+
+<Warning>
+  The default setting uses `BlockThreshold.NONE` for sexually explicit content, which means no filtering. You should configure appropriate safety settings for your use case.
+</Warning>
+
+## Configuring safety settings
+
+Use the `setSafetySettings()` method to customize content filtering:
+
+```kotlin ModelBuilder.kt
+fun setSafetySettings(settings: List<SafetySetting>) = apply { 
+    safetySettings = settings 
+}
+```
+
+### Example: Comprehensive safety configuration
+
+```kotlin
+import com.google.ai.client.generativeai.type.HarmCategory
+import com.google.ai.client.generativeai.type.BlockThreshold
+import com.google.ai.client.generativeai.type.SafetySetting
+
+val safeModel = ModelBuilder.Builder()
+    .setApiKey(apiKey)
+    .setModel(AIModel.GEMINI_1_5_FLASH.modelName)
+    .setSafetySettings(listOf(
+        SafetySetting(HarmCategory.HARASSMENT, BlockThreshold.MEDIUM_AND_ABOVE),
+        SafetySetting(HarmCategory.HATE_SPEECH, BlockThreshold.MEDIUM_AND_ABOVE),
+        SafetySetting(HarmCategory.SEXUALLY_EXPLICIT, BlockThreshold.MEDIUM_AND_ABOVE),
+        SafetySetting(HarmCategory.DANGEROUS_CONTENT, BlockThreshold.MEDIUM_AND_ABOVE)
+    ))
+    .build()
+```
+
+## Harm categories
+
+Gemini API provides four harm categories for content classification:
+
+<ParamField path="HarmCategory.HARASSMENT" type="HarmCategory">
+  Content that is rude, disrespectful, or profane. Includes bullying, intimidation, and targeted harassment.
+</ParamField>
+
+<ParamField path="HarmCategory.HATE_SPEECH" type="HarmCategory">
+  Content that promotes or incites hatred against individuals or groups based on protected attributes (race, religion, gender, etc.).
+</ParamField>
+
+<ParamField path="HarmCategory.SEXUALLY_EXPLICIT" type="HarmCategory">
+  Content that contains explicit sexual references or descriptions. Includes pornographic content.
+</ParamField>
+
+<ParamField path="HarmCategory.DANGEROUS_CONTENT" type="HarmCategory">
+  Content that promotes, facilitates, or encourages harmful acts. Includes violence, self-harm, and illegal activities.
+</ParamField>
+
+## Block thresholds
+
+Each harm category can be assigned a blocking threshold:
+
+<ParamField path="BlockThreshold.NONE" type="BlockThreshold">
+  Allow all content regardless of harm probability. No filtering applied.
+</ParamField>
+
+<ParamField path="BlockThreshold.LOW_AND_ABOVE" type="BlockThreshold">
+  Block content with low, medium, or high probability of harm. Most restrictive setting.
+</ParamField>
+
+<ParamField path="BlockThreshold.MEDIUM_AND_ABOVE" type="BlockThreshold">
+  Block content with medium or high probability of harm. Recommended for most applications.
+</ParamField>
+
+<ParamField path="BlockThreshold.ONLY_HIGH" type="BlockThreshold">
+  Only block content with high probability of harm. More permissive, suitable for mature audiences.
+</ParamField>
+
+## Safety setting examples
+
+<CodeGroup>
+```kotlin Family-friendly app
+val familyFriendlySettings = listOf(
+    SafetySetting(HarmCategory.HARASSMENT, BlockThreshold.LOW_AND_ABOVE),
+    SafetySetting(HarmCategory.HATE_SPEECH, BlockThreshold.LOW_AND_ABOVE),
+    SafetySetting(HarmCategory.SEXUALLY_EXPLICIT, BlockThreshold.LOW_AND_ABOVE),
+    SafetySetting(HarmCategory.DANGEROUS_CONTENT, BlockThreshold.LOW_AND_ABOVE)
+)
+
+val model = ModelBuilder.Builder()
+    .setApiKey(apiKey)
+    .setModel(AIModel.GEMINI_1_5_FLASH.modelName)
+    .setSafetySettings(familyFriendlySettings)
+    .build()
+```
+
+```kotlin Balanced moderation
+val balancedSettings = listOf(
+    SafetySetting(HarmCategory.HARASSMENT, BlockThreshold.MEDIUM_AND_ABOVE),
+    SafetySetting(HarmCategory.HATE_SPEECH, BlockThreshold.MEDIUM_AND_ABOVE),
+    SafetySetting(HarmCategory.SEXUALLY_EXPLICIT, BlockThreshold.MEDIUM_AND_ABOVE),
+    SafetySetting(HarmCategory.DANGEROUS_CONTENT, BlockThreshold.MEDIUM_AND_ABOVE)
+)
+
+val model = ModelBuilder.Builder()
+    .setApiKey(apiKey)
+    .setModel(AIModel.GEMINI_1_5_FLASH.modelName)
+    .setSafetySettings(balancedSettings)
+    .build()
+```
+
+```kotlin Minimal filtering
+val minimalSettings = listOf(
+    SafetySetting(HarmCategory.HARASSMENT, BlockThreshold.ONLY_HIGH),
+    SafetySetting(HarmCategory.HATE_SPEECH, BlockThreshold.ONLY_HIGH),
+    SafetySetting(HarmCategory.SEXUALLY_EXPLICIT, BlockThreshold.ONLY_HIGH),
+    SafetySetting(HarmCategory.DANGEROUS_CONTENT, BlockThreshold.ONLY_HIGH)
+)
+
+val model = ModelBuilder.Builder()
+    .setApiKey(apiKey)
+    .setModel(AIModel.GEMINI_1_5_FLASH.modelName)
+    .setSafetySettings(minimalSettings)
+    .build()
+```
+</CodeGroup>
+
+## How safety settings work
+
+Safety settings are passed to the `GenerativeModel` during initialization:
+
+```kotlin ModelBuilder.kt
+fun build(): GenerativeModel {
+    require(apiKey.isNotBlank()) { "API key must not be blank" }
+    require(modelName.isNotBlank()) { "Model name must not be blank" }
+    return GenerativeModel(
+        apiKey = apiKey,
+        modelName = modelName,
+        generationConfig = generationConfig,
+        safetySettings = safetySettings,
+        systemInstruction = getSystemInstruction(),
+    )
+}
+```
+
+The Gemini API evaluates each response against your configured safety settings. If content exceeds the threshold for any harm category, the API blocks the response and returns a safety rating instead.
+
+## Handling blocked content
+
+When content is blocked, the Gemini API returns:
+
+- A safety rating indicating which category triggered the block
+- The probability level (low, medium, high) for each harm category
+- No generated content
+
+<Info>
+  You should implement error handling to gracefully inform users when content is blocked, without revealing the specific harm category.
+</Info>
+
+## Choosing the right settings
+
+Use this guide to select appropriate safety settings:
+
+| Application type | Recommended threshold | Rationale |
+|-----------------|----------------------|----------|
+| Kids' apps | `LOW_AND_ABOVE` | Maximum protection for young users |
+| General audience | `MEDIUM_AND_ABOVE` | Balanced safety for most users |
+| Educational tools | `MEDIUM_AND_ABOVE` | Protect students while allowing academic discussions |
+| Professional tools | `ONLY_HIGH` | Allow technical discussions while blocking clearly harmful content |
+| Research/analysis | `NONE` (with warnings) | Minimal filtering for analyzing sensitive topics |
+
+<Warning>
+  Using `BlockThreshold.NONE` means no content filtering. Only use this setting if your app has appropriate user warnings and is intended for mature, consenting audiences.
+</Warning>
+
+## Best practices
+
+<Steps>
+  <Step title="Start conservative">
+    Begin with stricter settings (`MEDIUM_AND_ABOVE`) and adjust based on user feedback and your app's needs.
+  </Step>
+  
+  <Step title="Test thoroughly">
+    Test with various prompts, including edge cases, to understand how your settings affect responses.
+  </Step>
+  
+  <Step title="Provide user controls">
+    Consider allowing users to adjust safety settings (within acceptable ranges) based on their preferences.
+  </Step>
+  
+  <Step title="Monitor and iterate">
+    Track blocked content and user reports to refine your safety configuration over time.
+  </Step>
+</Steps>
+
+## Compliance considerations
+
+<Note>
+  Safety settings help protect users but don't guarantee complete filtering. Consider these additional measures:
+</Note>
+
+- **Age verification** for apps targeting specific age groups
+- **Terms of service** that outline acceptable use
+- **User reporting** mechanisms for problematic content
+- **Human moderation** for high-risk applications
+- **Legal compliance** with regulations like COPPA, GDPR, etc.
+
+## Troubleshooting
+
+### Too much content is blocked
+
+If legitimate responses are being blocked:
+
+- Lower the threshold to `MEDIUM_AND_ABOVE` or `ONLY_HIGH`
+- Review your system prompts - they might be eliciting flagged content
+- Test with different models (Pro models may handle edge cases better)
+
+### Harmful content is getting through
+
+If inappropriate content appears:
+
+- Increase the threshold to `LOW_AND_ABOVE`
+- Add explicit safety instructions to your system prompts
+- Implement additional client-side filtering
+- Report issues to Google's safety team

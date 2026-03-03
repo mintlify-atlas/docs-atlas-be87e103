@@ -1,0 +1,130 @@
+---
+title: Introduction to GemAI
+description: A modern Android chat application powered by Google Gemini AI with persistent conversation history and multiple model support
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="GemAI Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="GemAI Hero Dark"
+/>
+
+## Welcome to GemAI
+
+GemAI is a simple yet powerful wrapper for Google's Gemini AI, providing an intuitive chat interface for Android devices. Built with modern Android development practices, GemAI offers a seamless experience for interacting with Google's advanced AI models.
+
+Whether you're looking to have intelligent conversations, get help with tasks, or explore the capabilities of Gemini AI, GemAI provides a clean, efficient interface with full conversation history persistence.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card
+    title="Persistent chat history"
+    icon="database"
+    href="/developer/data-layer"
+  >
+    Room Database integration ensures your conversations are saved locally and accessible across sessions
+  </Card>
+  <Card
+    title="Clean architecture"
+    icon="layer-group"
+    href="/developer/architecture"
+  >
+    Built with separation of concerns using domain, data, and presentation layers with Hilt dependency injection
+  </Card>
+  <Card
+    title="Modern UI with Jetpack Compose"
+    icon="palette"
+    href="/features/chat-interface"
+  >
+    Fully declarative UI built with Jetpack Compose, featuring Material 3 design and dark mode support
+  </Card>
+  <Card
+    title="Multiple AI models"
+    icon="brain"
+    href="/features/ai-models"
+  >
+    Support for different Gemini AI model configurations to suit your specific use cases
+  </Card>
+  <Card
+    title="Smart prompt suggestions"
+    icon="lightbulb"
+    href="/configuration/system-prompts"
+  >
+    Pre-built prompt suggestions help you get started with meaningful conversations quickly
+  </Card>
+  <Card
+    title="Streaming responses"
+    icon="bolt"
+    href="/features/message-streaming"
+  >
+    Real-time streaming responses provide immediate feedback as the AI generates answers
+  </Card>
+</CardGroup>
+
+## Tech stack
+
+GemAI is built using cutting-edge Android development technologies:
+
+- **Architecture**: Clean Architecture principles with clear separation of domain, data, and presentation layers
+- **Platform**: Android API 29+ (Android 10 and above)
+- **Language**: Kotlin with JDK 17
+- **UI Framework**: Jetpack Compose for modern, declarative UI
+- **Navigation**: Compose Destinations for type-safe navigation
+- **Database**: Room Database for local persistence
+- **Configuration**: DataStore with Protocol Buffers for preferences
+- **Dependency Injection**: Hilt for compile-time safe DI
+- **Async**: Kotlin Coroutines and Flow for reactive programming
+- **AI Integration**: Google Generative AI SDK (Gemini)
+
+## Getting started
+
+<CardGroup cols={2}>
+  <Card
+    title="Installation"
+    icon="download"
+    href="/installation"
+  >
+    Clone the repository and build the app in Android Studio
+  </Card>
+  <Card
+    title="Quick start"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get your API key and start chatting with Gemini AI in minutes
+  </Card>
+</CardGroup>
+
+## Screenshots
+
+Here's what GemAI looks like in action:
+
+<Frame>
+  <img src="/images/screenshots/gemai-apikey.png" alt="API Key Setup Screen" />
+</Frame>
+
+<Frame>
+  <img src="/images/screenshots/gemai-startup.png" alt="Startup Screen with Prompts" />
+</Frame>
+
+<Frame>
+  <img src="/images/screenshots/gemai-chat.png" alt="Chat Interface" />
+</Frame>
+
+<Note>
+GemAI is a hobby project under active development. New features and improvements are added regularly as time permits.
+</Note>
+
+## Project status
+
+This is an open-source project welcoming contributions from the community. Feel free to fork the repository, submit pull requests, or report issues. Please ensure proper attribution when using this codebase.
+
+## Next steps
+
+Ready to dive in? Start by [installing the app](/installation) or jump straight to the [quickstart guide](/quickstart) to begin chatting with Gemini AI.

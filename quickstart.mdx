@@ -1,80 +1,393 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start
+description: Get up and running with GemAI in minutes - from API key setup to your first AI conversation
 ---
 
-## Get started in three steps
+## Overview
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through setting up your Gemini API key and sending your first message. You'll be chatting with AI in under 5 minutes.
 
-### Step 1: Set up your local environment
+<Note>
+Before starting, make sure you have [installed GemAI](/installation) on your device or emulator.
+</Note>
+
+## Get your Gemini API key
+
+<Steps>
+  <Step title="Launch GemAI">
+    Open the GemAI app on your Android device. On first launch, you'll see the API key setup screen:
+
+    <Frame>
+      <img src="/images/screenshots/gemai-apikey.png" alt="API Key Setup Screen" />
+    </Frame>
+  </Step>
+
+  <Step title="Navigate to Google AI Studio">
+    Tap the **Get Key** button in the app. This will open your browser and redirect you to Google AI Studio:
+
+    ```kotlin Onboarding.kt
+    OnboardingUIEvent.GetApiKey -> {
+        try {
+            val activity = view.context as ComponentActivity
+            val intent = Intent(
+                Intent.ACTION_VIEW, 
+                "https://aistudio.google.com/app/apikey".toUri()
+            )
+            activity.startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    ```
+
+    Alternatively, visit [Google AI Studio](https://aistudio.google.com/app/apikey) directly in your browser.
+  </Step>
+
+  <Step title="Generate your API key">
+    In Google AI Studio:
+    1. Sign in with your Google account
+    2. Click **Get API key** or **Create API key**
+    3. Select an existing Google Cloud project or create a new one
+    4. Copy the generated API key to your clipboard
+
+    <Warning>
+    Keep your API key secure and never share it publicly. Treat it like a password.
+    </Warning>
+  </Step>
+
+  <Step title="Enter and save your API key">
+    Return to the GemAI app and:
+    1. Paste your API key into the text field
+    2. Tap the **Save** button
+    3. The app will validate your API key
+
+    You'll see a validation status indicator showing whether your key is valid:
+
+    ```kotlin Onboarding.kt
+    when (state.apiKeyState) {
+        ApiKeyCheckStatus.CHECKING -> {
+            Text(text = "Validating Api Key.")
+        }
+        ApiKeyCheckStatus.INVALID -> {
+            Text(text = "Invalid Api Key.", color = errorColor)
+        }
+        ApiKeyCheckStatus.VALID -> {
+            Text(text = "Api Key validated.", color = successColor)
+        }
+    }
+    ```
+
+    Once validated, you'll automatically navigate to the chat screen.
+  </Step>
+</Steps>
+
+## Send your first message
+
+<Steps>
+  <Step title="Explore startup prompts">
+    After API key validation, you'll see the chat screen with suggested prompts:
+
+    <Frame>
+      <img src="/images/screenshots/gemai-startup.png" alt="Chat screen with startup prompts" />
+    </Frame>
+
+    These prompts help you get started quickly. Tap any prompt to begin a conversation, or write your own message.
+  </Step>
+
+  <Step title="Type your message">
+    In the chat input field at the bottom of the screen, type your question or message.
+
+    For example:
+    - "What is Clean Architecture in Android?"
+    - "Explain Kotlin coroutines with examples"
+    - "Write a poem about technology"
+  </Step>
+
+  <Step title="Send and receive">
+    Tap the send button to submit your message. GemAI will:
+    1. Create a new conversation (if this is your first message)
+    2. Save your message to the local database
+    3. Stream the AI's response in real-time
+
+    Here's what happens under the hood:
+
+    ```kotlin ChatViewModel.kt
+    private fun submit() {
+        if (uiState.value.prompt.isEmpty()) return
+        val prompt = uiState.value.prompt
+        update { copy(prompt = "", isLoading = true) }
+        
+        viewModelScope.launch {
+            // Create conversation if it doesn't exist
+            if (currentState.chatId == null) {
+                createConversationUseCase.perform("New Chat")
+                    .onSuccess { conversation ->
+                        currentChatId.value = conversation.id
+                    }
+            }
+            
+            // Send message to Gemini AI
+            sendMessageUseCase.perform(
+                Message.send(
+                    conversationId = currentChatId.value!!
+                    content = prompt,
+                )
+            )
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="View the response">
+    Watch as the AI's response streams in real-time:
+
+    <Frame>
+      <img src="/images/screenshots/gemai-chat.png" alt="Chat conversation with AI response" />
+    </Frame>
+
+    The response appears incrementally, providing immediate feedback as Gemini generates the answer.
+  </Step>
+</Steps>
+
+## Understanding the chat flow
+
+Here's how GemAI processes your messages:
+
+<Steps>
+  <Step title="Message creation">
+    When you send a message, GemAI creates a `Message` object:
+
+    ```kotlin Message.kt
+    data class Message(
+        val id: Long = 0,
+        val conversationId: Long,
+        val timestamp: Long,
+        val content: String,
+        val participant: Participant,
+        val status: MessageStatus,
+    ) {
+        companion object {
+            fun send(conversationId: Long, content: String): Message =
+                Message(
+                    conversationId = conversationId,
+                    timestamp = System.currentTimeMillis(),
+                    content = content,
+                    participant = Participant.USER,
+                    status = MessageStatus.LOADING,
+                )
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Send to Gemini AI">
+    The message is sent to the Gemini AI model through the `GemAIModel` class:
+
+    ```kotlin GemAIModel.kt
+    suspend fun sendMessage(
+        conversationId: Long, 
+        content: String
+    ): Flow<GenerateContentResponse> {
+        require(conversationId > 0) { "Invalid conversation ID" }
+        require(content.isNotBlank()) { "Message content cannot be blank" }
+        
+        val activeChat = chatLock.withLock {
+            if (conversationId != activeChatId || chat == null) {
+                initializeChat(conversationId)
+            }
+            chat ?: throw IllegalStateException("Chat not initialized")
+        }
+
+        return activeChat.sendMessageStream(content)
+    }
+    ```
+
+    The `sendMessageStream` method returns a `Flow`, enabling real-time streaming responses.
+  </Step>
+
+  <Step title="Store in database">
+    All messages are persisted in the Room database:
+
+    ```kotlin AppDatabase.kt
+    @Database(
+        entities = [
+            ConversationEntity::class,
+            MessageEntity::class,
+            PromptEntity::class
+        ],
+        version = 1,
+        exportSchema = true,
+    )
+    abstract class AppDatabase : RoomDatabase() {
+        abstract fun conversationDao(): ConversationDao
+        abstract fun messageDao(): MessageDao
+        abstract fun promptDao(): PromptDao
+    }
+    ```
+
+    This ensures your conversation history persists across app sessions.
+  </Step>
+
+  <Step title="Display in UI">
+    The chat screen observes message updates and displays them in real-time using Jetpack Compose:
+
+    ```kotlin ChatViewModel.kt
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val messageFlow =
+        currentChatId.flatMapLatest { id ->
+            id?.let {
+                update { copy(chatId = it) }
+                getConversationMessagesUseCase.performStreaming(it)
+            } ?: emptyFlow()
+        }
+
+    init {
+        viewModelScope.launch {
+            messageFlow
+                .catch { update { copy(isLoading = false) } }
+                .collectLatest { update { copy(chat = it) } }
+        }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Key features to explore
+
+<CardGroup cols={2}>
+  <Card title="Multiple conversations" icon="comments">
+    Create multiple chat threads and switch between them using the side navigation
+  </Card>
+  <Card title="Conversation history" icon="clock-rotate-left">
+    All your conversations are saved locally and accessible anytime
+  </Card>
+  <Card title="Dark mode" icon="moon">
+    Toggle between light and dark themes for comfortable viewing
+  </Card>
+  <Card title="Markdown rendering" icon="file-code">
+    AI responses support markdown formatting for code blocks and rich text
+  </Card>
+</CardGroup>
+
+## How data is stored
+
+GemAI uses a clean architecture approach with three layers:
+
+### Data layer
+
+The API key is stored securely using DataStore with Protocol Buffers:
+
+```kotlin
+// API keys are encrypted and stored in DataStore
+dataStore: DataStore<UserConfig>
+```
+
+### Domain layer
+
+Business logic is encapsulated in use cases:
+
+```kotlin SendMessageUseCase.kt
+class SendMessageUseCase @Inject constructor(
+    private val chatRepository: ChatRepository,
+    @Dispatcher(GemAIDispatchers.IO) private val dispatcher: CoroutineDispatcher,
+) : BaseUseCase<Message, Result<Unit, RequestError>> {
+    override suspend fun perform(params: Message): Result<Unit, RequestError> =
+        withContext(dispatcher) { 
+            chatRepository.sendMessage(params) 
+        }
+}
+```
+
+### Presentation layer
+
+ViewModels manage UI state and coordinate use cases:
+
+```kotlin ChatViewModel.kt
+@HiltViewModel
+class ChatViewModel @Inject constructor(
+    private val createConversationUseCase: CreateConversationUseCase,
+    private val sendMessageUseCase: SendMessageUseCase,
+    private val getConversationMessagesUseCase: GetConversationMessagesUseCase,
+    private val getConversationsUseCase: GetConversationsUseCase,
+    // ... other use cases
+) : BaseViewModel<ChatUIState, ChatUIEvent, ChatUIAction>()
+```
+
+## Troubleshooting
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+  <Accordion title="API key validation fails">
+    If your API key is rejected:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+    1. Verify you copied the entire key without extra spaces
+    2. Check that the key is from Google AI Studio (not Google Cloud Console)
+    3. Ensure your Google Cloud project has the Generative AI API enabled
+    4. Try generating a new API key
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+
+  <Accordion title="Messages not sending">
+    If messages aren't sending:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+    1. Check your internet connection
+    2. Verify your API key is still valid
+    3. Check the Android Logcat for error messages
+    4. Ensure the app has network permissions (already configured in manifest)
+  </Accordion>
+
+  <Accordion title="Conversation history not persisting">
+    If your chats disappear:
+    
+    1. Check app storage permissions
+    2. Verify the app isn't being force-stopped by battery optimization
+    3. Check if device storage is full
+    4. Database is stored at: `/data/data/com.sarath.gem/databases/gemai.db`
+  </Accordion>
+
+  <Accordion title="Slow response times">
+    If responses are slow:
+    
+    1. Check your internet connection speed
+    2. Large messages may take longer to process
+    3. Google's API may experience high traffic during peak hours
+    4. Consider using a different Gemini model (if customization is added)
   </Accordion>
 </AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
+Now that you're up and running, explore more advanced features:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card
+    title="Architecture overview"
+    icon="sitemap"
+    href="/developer/architecture"
+  >
+    Understand how GemAI is structured with Clean Architecture
+  </Card>
+  <Card
+    title="Database schema"
+    icon="database"
+    href="/developer/data-layer"
+  >
+    Learn about the Room database structure and relationships
+  </Card>
+  <Card
+    title="System prompts"
+    icon="palette"
+    href="/configuration/system-prompts"
+  >
+    Customize the AI's behavior with system prompts
+  </Card>
+  <Card
+    title="Extending GemAI"
+    icon="code"
+    href="/developer/extending"
+  >
+    Learn how to add new features to GemAI
+  </Card>
 </CardGroup>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+Remember to star the project on GitHub if you find GemAI useful!
 </Note>

@@ -1,0 +1,157 @@
+---
+title: Chat interface
+description: Explore the chat UI and user experience in GemAI
+---
+
+The GemAI chat interface provides a clean, intuitive messaging experience powered by Google's Gemini AI models. Built with Jetpack Compose, the interface delivers real-time streaming responses with visual feedback for message states.
+
+## Message structure
+
+Each message in GemAI follows a well-defined data model that tracks essential information:
+
+```kotlin Message.kt
+data class Message(
+    val id: Long = 0,
+    val conversationId: Long,
+    val timestamp: Long,
+    val content: String,
+    val participant: Participant,
+    val status: MessageStatus,
+)
+```
+
+### Message participants
+
+Messages are categorized by participant type, which determines how they're displayed in the UI:
+
+<Tabs>
+  <Tab title="User messages">
+    User messages represent input from you. They're created using the `Message.send()` factory method:
+
+    ```kotlin
+    Message.send(conversationId: Long, content: String): Message
+    ```
+
+    User messages start with `MessageStatus.LOADING` status while being processed.
+  </Tab>
+  <Tab title="AI responses">
+    AI responses come from the Gemini model. They're created using the `Message.receive()` factory method:
+
+    ```kotlin
+    Message.receive(conversationId: Long, content: String): Message
+    ```
+
+    AI messages are marked with `MessageStatus.RECEIVED` status and assigned the `Participant.MODEL` role.
+  </Tab>
+</Tabs>
+
+<Info>
+  The `Participant` enum has two values: `USER` and `MODEL`. Each participant has a corresponding `role` property that maps to Gemini API requirements (`"user"` or `"model"`).
+</Info>
+
+## Message status indicators
+
+The interface provides visual feedback through four distinct message states:
+
+<Accordion title="Message status types">
+  - **LOADING** - Displayed while your message is being sent to the AI
+  - **SENT** - Indicates your message was successfully delivered
+  - **FAILED** - Shows when message delivery encountered an error
+  - **RECEIVED** - Marks AI responses that have been successfully received
+</Accordion>
+
+You can update message content and status dynamically using the `update()` method:
+
+```kotlin
+message.update(content = "Updated text", status = MessageStatus.SENT)
+```
+
+## Message composition
+
+When you compose a new message, the application creates it with automatic timestamp generation:
+
+```kotlin Example: Creating a user message
+val userMessage = Message.send(
+    conversationId = 123,
+    content = "What is Clean Architecture?"
+)
+// Result: Message with participant=USER, status=LOADING
+```
+
+<Tip>
+  All timestamps are generated using `System.currentTimeMillis()` to ensure accurate chronological ordering in the chat history.
+</Tip>
+
+## Message display patterns
+
+The chat interface handles different message scenarios with specific patterns:
+
+### Receiving streamed responses
+
+When the AI responds, messages can be created incrementally as content streams in:
+
+```kotlin Example: Receiving AI message
+val aiMessage = Message.receive(
+    id = messageId,
+    conversationId = 123,
+    content = streamedContent
+)
+```
+
+### Foreign key relationships
+
+Messages maintain referential integrity through foreign key constraints in the Room database:
+
+```kotlin MessageEntity structure
+@Entity(
+    tableName = "messages",
+    foreignKeys = [
+        ForeignKey(
+            entity = ConversationEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["conversationId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ]
+)
+```
+
+<Note>
+  When you delete a conversation, all associated messages are automatically removed through cascade deletion.
+</Note>
+
+## User interaction flow
+
+The typical interaction pattern in the chat interface follows these steps:
+
+1. **Compose** - You type a message in the input field
+2. **Send** - The message is created with `LOADING` status
+3. **Process** - Your message is sent to the Gemini API via the repository layer
+4. **Stream** - AI response is received incrementally and displayed in real-time
+5. **Complete** - Both messages are marked with final status (`SENT` and `RECEIVED`)
+
+<CodeGroup>
+```kotlin User message creation
+val message = Message.send(
+    conversationId = conversationId,
+    content = userInput
+)
+```
+
+```kotlin AI response creation
+val response = Message.receive(
+    conversationId = conversationId,
+    content = aiGeneratedText
+)
+```
+</CodeGroup>
+
+## Error handling in the UI
+
+When message delivery fails, the status is updated to `FAILED`, providing visual feedback:
+
+```kotlin
+message.update(status = MessageStatus.FAILED)
+```
+
+You can retry failed messages by resubmitting them through the `SendMessageUseCase`, which handles the complete message lifecycle.

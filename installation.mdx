@@ -1,0 +1,234 @@
+---
+title: Installation
+description: Learn how to clone, build, and install the GemAI Android application
+---
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed on your development machine:
+
+<CardGroup cols={2}>
+  <Card title="Android Studio" icon="android">
+    Latest stable version of Android Studio (recommended: Hedgehog or newer)
+  </Card>
+  <Card title="JDK 17" icon="java">
+    Java Development Kit 17 or higher is required for building the project
+  </Card>
+  <Card title="Android SDK" icon="mobile">
+    Android SDK API 29+ (Android 10) - installed via Android Studio SDK Manager
+  </Card>
+  <Card title="Git" icon="git">
+    Git for cloning the repository
+  </Card>
+</CardGroup>
+
+<Note>
+The app targets API 35 (Android 15) and has a minimum SDK requirement of API 29 (Android 10).
+</Note>
+
+## Installation steps
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone the GemAI repository to your local machine:
+
+    ```bash
+    git clone https://github.com/yourusername/gemai.git
+    cd gemai
+    ```
+
+    <Note>
+    Replace `yourusername` with the actual repository owner's username.
+    </Note>
+  </Step>
+
+  <Step title="Open in Android Studio">
+    Launch Android Studio and open the cloned project:
+
+    1. Click **File** > **Open**
+    2. Navigate to the cloned `gemai` directory
+    3. Click **OK** to open the project
+
+    Android Studio will automatically start syncing Gradle files and downloading dependencies.
+  </Step>
+
+  <Step title="Sync Gradle dependencies">
+    Wait for Gradle to sync all dependencies. This may take a few minutes on the first build.
+
+    The project uses the following key dependencies:
+
+    ```kotlin build.gradle.kts
+    // Core Android dependencies
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    
+    // Jetpack Compose
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.material3)
+    
+    // Gemini AI SDK
+    implementation(libs.gemini.ai)
+    
+    // Room Database
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    
+    // Hilt Dependency Injection
+    implementation(libs.hilt.android)
+    
+    // DataStore
+    implementation(libs.androidx.datastore.core)
+    ```
+
+    <Warning>
+    If you encounter sync errors, ensure you have JDK 17 configured in Android Studio. Go to **File** > **Project Structure** > **SDK Location** and verify the JDK path.
+    </Warning>
+  </Step>
+
+  <Step title="Configure build variant">
+    GemAI uses standard Android build configurations:
+
+    - **compileSdk**: 35
+    - **minSdk**: 29
+    - **targetSdk**: 35
+    - **JVM Target**: 17
+
+    These are already configured in `app/build.gradle.kts`:
+
+    ```kotlin app/build.gradle.kts
+    android {
+        namespace = "com.sarath.gem"
+        compileSdk = 35
+
+        defaultConfig {
+            applicationId = "com.sarath.gem"
+            minSdk = 29
+            targetSdk = 35
+            versionCode = 1
+            versionName = "0.0.1"
+        }
+        
+        compileOptions {
+            sourceCompatibility = JavaVersion.VERSION_17
+            targetCompatibility = JavaVersion.VERSION_17
+        }
+        
+        kotlinOptions { 
+            jvmTarget = "17" 
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Build the project">
+    Build the project to ensure everything is configured correctly:
+
+    ```bash
+    ./gradlew build
+    ```
+
+    Or use Android Studio:
+    - Click **Build** > **Make Project** or press `Ctrl+F9` (Windows/Linux) / `Cmd+F9` (Mac)
+
+    The first build may take several minutes as Gradle downloads all dependencies.
+  </Step>
+
+  <Step title="Run on device or emulator">
+    Connect an Android device via USB or create an Android Virtual Device (AVD):
+
+    **For physical device:**
+    1. Enable **Developer Options** on your Android device
+    2. Enable **USB Debugging**
+    3. Connect via USB and select your device in Android Studio
+
+    **For emulator:**
+    1. Open **AVD Manager** in Android Studio
+    2. Create a new virtual device with API 29 or higher
+    3. Launch the emulator
+
+    Then click the **Run** button (green play icon) or press `Shift+F10`.
+  </Step>
+</Steps>
+
+## Build variants
+
+GemAI currently supports two build types:
+
+| Build Type | Minify Enabled | ProGuard | Use Case |
+|------------|----------------|----------|----------|
+| **Debug** | No | No | Development and testing |
+| **Release** | No | Yes | Production builds |
+
+<Note>
+Currently, minification is disabled for release builds. You can enable it by setting `isMinifyEnabled = true` in `app/build.gradle.kts`.
+</Note>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Gradle sync fails with 'Unsupported Java version'">
+    This error occurs when Android Studio is using a JDK version older than 17.
+
+    **Solution:**
+    1. Download and install JDK 17 or newer
+    2. In Android Studio, go to **File** > **Project Structure** > **SDK Location**
+    3. Set the **JDK location** to your JDK 17 installation
+    4. Click **Apply** and sync Gradle again
+  </Accordion>
+
+  <Accordion title="Build fails with 'Cannot resolve symbol'">
+    This usually indicates incomplete dependency downloads or cache issues.
+
+    **Solution:**
+    1. Click **File** > **Invalidate Caches**
+    2. Select **Invalidate and Restart**
+    3. After restart, try **File** > **Sync Project with Gradle Files**
+  </Accordion>
+
+  <Accordion title="App crashes on startup">
+    If the app builds successfully but crashes on launch, check the following:
+
+    **Solution:**
+    1. Ensure your device/emulator is running Android API 29 or higher
+    2. Check Logcat in Android Studio for error messages
+    3. Verify all dependencies synced correctly
+    4. Try a clean rebuild: **Build** > **Clean Project**, then **Build** > **Rebuild Project**
+  </Accordion>
+
+  <Accordion title="KSP annotation processing errors">
+    GemAI uses KSP for Room, Hilt, and Compose Destinations code generation.
+
+    **Solution:**
+    1. Ensure KSP plugin version matches Kotlin version in `gradle/libs.versions.toml`:
+       ```toml
+       kotlin = "2.1.0"
+       ksp = "2.1.0-1.0.29"
+       ```
+    2. Clean and rebuild the project
+  </Accordion>
+</AccordionGroup>
+
+## Verify installation
+
+Once the app launches successfully, you should see the API key setup screen. This confirms that:
+
+- All dependencies are properly installed
+- The database is initialized correctly
+- The app is ready for configuration
+
+<Frame>
+  <img src="/images/screenshots/gemai-apikey.png" alt="Successful installation - API Key screen" />
+</Frame>
+
+## Next steps
+
+Now that you have GemAI installed, proceed to the [Quick Start guide](/quickstart) to configure your Gemini AI API key and start chatting.
+
+<Card
+  title="Quick Start Guide"
+  icon="rocket"
+  href="/quickstart"
+>
+  Learn how to get your API key and send your first message to Gemini AI
+</Card>

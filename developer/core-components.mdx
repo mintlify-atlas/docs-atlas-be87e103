@@ -1,0 +1,383 @@
+---
+title: Core components
+description: Explore GemAI's base classes, use cases, ViewModels, and AI model abstractions that form the foundation of the application
+---
+
+GemAI is built on a set of reusable base components that enforce architectural patterns and reduce boilerplate code. Understanding these components is essential for extending the application.
+
+## Base classes
+
+All major components in GemAI inherit from base classes that provide common functionality:
+
+### BaseViewModel
+
+The foundation for all ViewModels, implementing Unidirectional Data Flow (UDF) pattern:
+
+```kotlin BaseViewModel.kt
+interface UIState        // Represents the state of the UI
+interface UIEvent        // One-time events (navigation, alerts, toasts)
+interface UIAction       // User actions (clicks, inputs)
+
+abstract class BaseViewModel<State : UIState, Event : UIEvent, Action : UIAction>() : ViewModel() {
+    abstract fun initialState(): State
+    protected abstract fun onActionEvent(action: Action)
+
+    // State management
+    private val _uiState = MutableStateFlow(initialState)
+    val uiState: StateFlow<State> = _uiState.asStateFlow()
+    
+    protected val currentState: State
+        get() = uiState.value
+
+    protected fun update(updatedState: State.() -> State) = _uiState.update(updatedState)
+
+    // One-time event handling
+    private val _uiEventFlow = Channel<Event>(capacity = Channel.BUFFERED)
+    val uiEvent = _uiEventFlow.receiveAsFlow()
+    
+    protected fun sendOneTimeUIEvent(event: Event, delayMillis: Long? = null) {
+        launch {
+            delayMillis?.let { delay(it) }
+            _uiEventFlow.send(event)
+        }
+    }
+
+    // Public action handler
+    fun onAction(action: Action) {
+        onActionEvent(action)
+    }
+}
+```
+
+<Accordion title="How to use BaseViewModel">
+  Define your state, events, and actions, then extend `BaseViewModel`:
+
+  ```kotlin Example ViewModel
+  data class ChatUIState(
+      val prompt: String,
+      val chat: List<Message>,
+      val isLoading: Boolean,
+      val chatId: Long?
+  ) : UIState
+
+  sealed class ChatUIEvent : UIEvent {
+      data class ShowError(val message: String) : ChatUIEvent()
+  }
+
+  sealed class ChatUIAction : UIAction {
+      data class SetPrompt(val prompt: String) : ChatUIAction()
+      object Submit : ChatUIAction()
+  }
+
+  @HiltViewModel
+  class ChatViewModel @Inject constructor(
+      private val sendMessageUseCase: SendMessageUseCase
+  ) : BaseViewModel<ChatUIState, ChatUIEvent, ChatUIAction>() {
+      
+      override fun initialState(): ChatUIState {
+          return ChatUIState(
+              prompt = "",
+              chat = emptyList(),
+              isLoading = false,
+              chatId = null
+          )
+      }
+
+      override fun onActionEvent(action: ChatUIAction) {
+          when (action) {
+              is ChatUIAction.SetPrompt -> update { copy(prompt = action.prompt) }
+              ChatUIAction.Submit -> submit()
+          }
+      }
+
+      private fun submit() {
+          update { copy(isLoading = true) }
+          viewModelScope.launch {
+              sendMessageUseCase.perform(currentState.prompt)
+                  .onSuccess { update { copy(isLoading = false) } }
+          }
+      }
+  }
+  ```
+</Accordion>
+
+### BaseUseCase
+
+Defines the contract for all business logic operations:
+
+```kotlin BaseUseCase.kt
+interface BaseUseCase<in Params, out Result> {
+    // Execute without parameters
+    suspend fun perform(): Result = 
+        throw NotImplementedError("BaseUseCase perform() not implemented")
+
+    // Execute with parameters
+    suspend fun perform(params: Params): Result? =
+        throw NotImplementedError("BaseUseCase perform(params) not implemented")
+
+    // Execute as a stream
+    fun performStreaming(params: Params): Flow<Result> =
+        throw NotImplementedError("BaseUseCase performStreaming() not implemented")
+
+    fun performStreaming(): Flow<Result> = 
+        throw NotImplementedError("BaseUseCase performStreaming() not implemented")
+}
+```
+
+<Info>
+  Use cases encapsulate single business operations. Override only the methods you need: `perform()`, `perform(params)`, or `performStreaming()`.
+</Info>
+
+<Expandable title="Real use case examples from GemAI">
+  <CodeGroup>
+  ```kotlin SendMessageUseCase.kt
+  class SendMessageUseCase @Inject constructor(
+      private val chatRepository: ChatRepository,
+      @Dispatcher(GemAIDispatchers.IO) private val dispatcher: CoroutineDispatcher,
+  ) : BaseUseCase<Message, Result<Unit, RequestError>> {
+      override suspend fun perform(params: Message): Result<Unit, RequestError> =
+          withContext(dispatcher) { chatRepository.sendMessage(params) }
+  }
+  ```
+
+  ```kotlin CreateConversationUseCase.kt
+  class CreateConversationUseCase @Inject constructor(
+      private val chatRepository: ChatRepository
+  ) : BaseUseCase<String, Result<Conversation, RequestError>> {
+      override suspend fun perform(params: String): Result<Conversation, RequestError> {
+          return chatRepository.createConversation(params)
+      }
+  }
+  ```
+  </CodeGroup>
+</Expandable>
+
+### BaseDao
+
+Provides common CRUD operations for all Room DAOs:
+
+```kotlin BaseDao.kt
+@Dao
+interface BaseDao<T> {
+    @Insert(onConflict = OnConflictStrategy.IGNORE) 
+    suspend fun insert(entity: T): Long
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE) 
+    suspend fun insertAll(entities: List<T>): List<Long>
+
+    @Upsert suspend fun upsert(entity: T): Long
+    @Upsert suspend fun upsertAll(entities: List<T>)
+
+    @Update suspend fun update(entity: T)
+    @Update suspend fun updateAll(entities: List<T>)
+
+    @Delete suspend fun delete(entity: T)
+    @Delete suspend fun deleteAll(entities: List<T>)
+}
+```
+
+<Tip>
+  All DAOs extend `BaseDao<T>` to inherit standard operations, then add custom queries specific to their entity.
+</Tip>
+
+### BaseMapper
+
+Defines bidirectional mapping between entities and domain models:
+
+```kotlin BaseMapper.kt
+interface BaseMapper<Entity, Domain> {
+    fun mapToDomain(entity: Entity): Domain
+    fun mapToEntity(domain: Domain): Entity
+}
+
+// Example implementation
+object MessageMapper : BaseMapper<MessageEntity, Message> {
+    override fun mapToDomain(entity: MessageEntity): Message {
+        return with(entity) {
+            Message(
+                id = id,
+                conversationId = conversationId,
+                timestamp = timestamp,
+                content = content,
+                participant = participant,
+                status = status,
+            )
+        }
+    }
+
+    override fun mapToEntity(domain: Message): MessageEntity {
+        return with(domain) {
+            MessageEntity(
+                id = id,
+                conversationId = conversationId,
+                timestamp = timestamp,
+                content = content,
+                participant = participant,
+                status = status,
+            )
+        }
+    }
+}
+
+// Extension functions for convenience
+fun Message.toEntity() = MessageMapper.mapToEntity(this)
+fun MessageEntity.toDomain() = MessageMapper.mapToDomain(this)
+```
+
+## AI model components
+
+GemAI uses Google's Generative AI SDK with custom abstractions:
+
+### BaseAIModel
+
+Provides common functionality for all AI models:
+
+```kotlin BaseAIModel.kt
+abstract class BaseAIModel(private val datastoreRepository: DatastoreRepository) {
+    protected val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default + exceptionHandler)
+    
+    protected var modelName: String = AIModel.GEMINI_1_5_FLASH.modelName
+        private set
+    
+    protected var apiKey: String = "AIzaSyAy5BO5bOFOSLtAExAEBz1irLyAIsfFfoI"
+        private set
+    
+    protected val modelBuilder = ModelBuilder.Builder()
+    protected val geminiAIModel: GenerativeModel by lazy { getGenerativeModel() }
+
+    init {
+        coroutineScope.launch {
+            val deferredModelName = async { datastoreRepository.getModel().modelName }
+            val deferredApiKey = async { datastoreRepository.getApiKey() }
+            modelName = deferredModelName.await()
+            deferredApiKey.await()?.let { apiKey = it }
+        }
+    }
+
+    protected open fun getGenerativeModel(): GenerativeModel {
+        return modelBuilder.setApiKey(apiKey).setModel(modelName).build()
+    }
+
+    suspend fun testKey(key: String): Boolean {
+        return modelBuilder.testKey(key)
+    }
+}
+```
+
+### GemAIModel
+
+Handles chat conversations with conversation history management:
+
+```kotlin GemAIModel.kt
+class GemAIModel @Inject constructor(
+    datastoreRepository: DatastoreRepository, 
+    private val messageDao: MessageDao
+) : BaseAIModel(datastoreRepository) {
+    private val chatLock = Mutex()
+    private var chat: Chat? = null
+    private var activeChatId: Long? = null
+
+    suspend fun sendMessage(conversationId: Long, content: String): Flow<GenerateContentResponse> {
+        require(conversationId > 0) { "Invalid conversation ID" }
+        require(content.isNotBlank()) { "Message content cannot be blank" }
+        
+        val activeChat = chatLock.withLock {
+            if (conversationId != activeChatId || chat == null) {
+                initializeChat(conversationId)
+            }
+            chat ?: throw IllegalStateException("Chat not initialized")
+        }
+
+        return activeChat.sendMessageStream(content)
+    }
+
+    private suspend fun initializeChat(conversationId: Long) {
+        val history = try {
+            messageDao.getMessages(conversationId)
+                .map { content(role = it.participant.role) { text(it.content) } }
+        } catch (e: Exception) {
+            emptyList()
+        }
+        setChat(geminiAIModel.startChat(history), conversationId)
+    }
+}
+```
+
+<Info>
+  `GemAIModel` maintains chat state per conversation, automatically loading message history when switching between chats.
+</Info>
+
+### SystemAIModel
+
+Handles system-level AI tasks like title generation and prompt suggestions:
+
+```kotlin SystemAIModel.kt (excerpt)
+class SystemAIModel @Inject constructor(
+    datastoreRepository: DatastoreRepository
+) : BaseAIModel(datastoreRepository) {
+
+    suspend fun generateChatTitle(prompt: String): String? {
+        return getGenerativeModel()
+            .generateContent(
+                """
+                System Instruction :$updateChatTitleInstruction,
+                Prompt: $prompt
+            """.trimIndent()
+            )
+            .text
+    }
+
+    suspend fun generateInitialPrompts(prompt: String): List<PromptDto> {
+        val model = baseModel
+            .setConfig {
+                generationConfig {
+                    temperature = 0.7f
+                    topP = 0.75f
+                    topK = 40
+                    responseMimeType = "application/json"
+                }
+            }
+            .build()
+
+        return try {
+            model.generateContent(
+                "System Instruction : $generateInitialPromptsInstruction, Prompt: $prompt"
+            ).text?.let { Json.decodeFromString<List<PromptDto>>(it) } ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+}
+```
+
+## Component relationships
+
+Here's how these components work together:
+
+```mermaid
+graph TD
+    A[UI/Composable] -->|Actions| B[ViewModel]
+    B -->|State| A
+    B -->|Calls| C[UseCase]
+    C -->|Uses| D[Repository]
+    D -->|Queries| E[DAO/BaseDao]
+    D -->|Maps| F[Mapper/BaseMapper]
+    E -->|Returns| G[Entity]
+    F -->|Converts| H[Domain Model]
+    
+    style B fill:#e1f5ff
+    style C fill:#fff3e0
+    style D fill:#f3e5f5
+    style E fill:#e8f5e9
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Data layer" icon="database" href="/developer/data-layer">
+    Learn about Room database and repository implementations
+  </Card>
+  <Card title="Extending GemAI" icon="code" href="/developer/extending">
+    Add new features using these base components
+  </Card>
+</CardGroup>

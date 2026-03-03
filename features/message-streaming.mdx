@@ -1,0 +1,308 @@
+---
+title: Message streaming
+description: Real-time message streaming functionality in GemAI
+---
+
+GemAI implements real-time message streaming to provide immediate, incremental responses from the Gemini AI model. This creates a responsive chat experience where you see the AI's response being generated word-by-word.
+
+## Streaming architecture
+
+The streaming functionality is built around Kotlin Flow and the Google Generative AI SDK's streaming capabilities:
+
+```kotlin GemAIModel.kt
+suspend fun sendMessage(
+    conversationId: Long,
+    content: String
+): Flow<GenerateContentResponse> {
+    require(conversationId > 0) { "Invalid conversation ID" }
+    require(content.isNotBlank()) { "Message content cannot be blank" }
+    
+    val activeChat = chatLock.withLock {
+        if (conversationId != activeChatId || chat == null) {
+            initializeChat(conversationId)
+        }
+        chat ?: throw IllegalStateException("Chat not initialized")
+    }
+    
+    return activeChat.sendMessageStream(content)
+}
+```
+
+<Info>
+  The method returns a `Flow<GenerateContentResponse>` that emits response chunks as they arrive from the Gemini API.
+</Info>
+
+## Message validation
+
+Before streaming begins, the system validates the input parameters:
+
+<Accordion title="Input validation requirements">
+  ```kotlin
+  require(conversationId > 0) { "Invalid conversation ID" }
+  require(content.isNotBlank()) { "Message content cannot be blank" }
+  ```
+  
+  - **Conversation ID** must be a positive value
+  - **Message content** cannot be blank or contain only whitespace
+  
+  Violations throw `IllegalArgumentException` with descriptive error messages.
+</Accordion>
+
+## Chat initialization and state
+
+The streaming system maintains chat state using a mutex for thread-safe operations:
+
+```kotlin State management
+private val chatLock = Mutex()
+private var chat: Chat? = null
+private var activeChatId: Long? = null
+```
+
+### Chat session lifecycle
+
+<Steps>
+  <Step title="Lock acquisition">
+    Acquire the mutex to ensure thread-safe chat initialization
+    ```kotlin
+    chatLock.withLock {
+        // Thread-safe operations
+    }
+    ```
+  </Step>
+  
+  <Step title="State check">
+    Verify if chat needs initialization for the given conversation
+    ```kotlin
+    if (conversationId != activeChatId || chat == null) {
+        initializeChat(conversationId)
+    }
+    ```
+  </Step>
+  
+  <Step title="Validation">
+    Ensure chat object is ready for streaming
+    ```kotlin
+    chat ?: throw IllegalStateException("Chat not initialized")
+    ```
+  </Step>
+  
+  <Step title="Stream">
+    Send the message and return the streaming response
+    ```kotlin
+    activeChat.sendMessageStream(content)
+    ```
+  </Step>
+</Steps>
+
+## Initializing chat with history
+
+When a chat session starts, the system loads the conversation's message history:
+
+```kotlin GemAIModel.kt
+private suspend fun initializeChat(conversationId: Long) {
+    val history = try {
+        messageDao.getMessages(conversationId).map {
+            content(role = it.participant.role) {
+                text(it.content)
+            }
+        }
+    } catch (e: Exception) {
+        emptyList()
+    }
+    setChat(geminiAIModel.startChat(history), conversationId)
+}
+```
+
+<Note>
+  Message history is converted to the Gemini API format, mapping each message's participant role and content. If history retrieval fails, an empty list is used, effectively starting a fresh conversation.
+</Note>
+
+### History format conversion
+
+Messages are transformed from the app's data model to Google's AI SDK format:
+
+<Tabs>
+  <Tab title="App format">
+    ```kotlin
+    data class Message(
+        val content: String,
+        val participant: Participant,  // USER or MODEL
+        // ... other fields
+    )
+    ```
+  </Tab>
+  
+  <Tab title="AI SDK format">
+    ```kotlin
+    content(role = "user") {  // or "model"
+        text("message content")
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Streaming response flow
+
+Once the chat is initialized, streaming happens through the Google AI SDK:
+
+```kotlin Flow streaming
+return activeChat.sendMessageStream(content)
+```
+
+This returns a `Flow<GenerateContentResponse>` that you can collect to receive incremental updates:
+
+```kotlin Example: Collecting stream
+val responseFlow = gemAIModel.sendMessage(
+    conversationId = 123,
+    content = "Explain Kotlin coroutines"
+)
+
+responseFlow.collect { response ->
+    // Process each chunk as it arrives
+    val chunk = response.text ?: ""
+    updateUI(chunk)
+}
+```
+
+<Tip>
+  Each emission from the flow contains a portion of the complete response. You'll need to accumulate these chunks to build the full message content.
+</Tip>
+
+## Thread safety with mutex
+
+The streaming implementation uses a `Mutex` to prevent race conditions:
+
+```kotlin Thread-safe operations
+private val chatLock = Mutex()
+
+val activeChat = chatLock.withLock {
+    // Only one coroutine can execute this block at a time
+    if (conversationId != activeChatId || chat == null) {
+        initializeChat(conversationId)
+    }
+    chat ?: throw IllegalStateException("Chat not initialized")
+}
+```
+
+<Accordion title="Why use a mutex?">
+  The mutex ensures that:
+  - Only one chat initialization happens at a time
+  - Chat state isn't modified while another coroutine is reading it
+  - Conversation switching is handled safely
+  - Multiple concurrent message sends don't corrupt chat state
+</Accordion>
+
+## Use case integration
+
+The streaming functionality is accessed through the `SendMessageUseCase`:
+
+```kotlin SendMessageUseCase.kt
+class SendMessageUseCase @Inject constructor(
+    private val chatRepository: ChatRepository,
+    @Dispatcher(GemAIDispatchers.IO) private val dispatcher: CoroutineDispatcher
+) : BaseUseCase<Message, Result<Unit, RequestError>> {
+    override suspend fun perform(params: Message): Result<Unit, RequestError> =
+        withContext(dispatcher) {
+            chatRepository.sendMessage(params)
+        }
+}
+```
+
+### Complete streaming workflow
+
+<CodeGroup>
+```kotlin ViewModel layer
+viewModelScope.launch {
+    val message = Message.send(
+        conversationId = currentConversationId,
+        content = userInput
+    )
+    
+    sendMessageUseCase.perform(message)
+}
+```
+
+```kotlin Repository layer
+override suspend fun sendMessage(message: Message): Result<Unit, RequestError> {
+    // Save user message
+    messageDao.insertMessage(message.toEntity())
+    
+    // Stream AI response
+    gemAIModel.sendMessage(message.conversationId, message.content)
+        .collect { response ->
+            // Update AI message incrementally
+            updateAIMessage(response.text)
+        }
+}
+```
+</CodeGroup>
+
+## Error handling in streams
+
+The streaming implementation includes robust error handling:
+
+```kotlin Exception handling
+private suspend fun initializeChat(conversationId: Long) {
+    val history = try {
+        messageDao.getMessages(conversationId).map { /* ... */ }
+    } catch (e: Exception) {
+        emptyList()  // Fallback to empty history
+    }
+    setChat(geminiAIModel.startChat(history), conversationId)
+}
+```
+
+<Note>
+  If message history cannot be loaded, the system gracefully falls back to an empty history, allowing the conversation to continue without context.
+</Note>
+
+## State management
+
+The chat state is updated atomically when initialization completes:
+
+```kotlin Setting active chat
+private fun setChat(newChat: Chat, conversationId: Long) {
+    activeChatId = conversationId
+    chat = newChat
+}
+```
+
+This ensures:
+- The active conversation ID is tracked
+- The chat instance is ready for streaming
+- Future messages in the same conversation reuse the existing chat session
+
+## Performance considerations
+
+<CardGroup cols={2}>
+  <Card title="Conversation switching" icon="arrows-rotate">
+    When you switch conversations, the chat is reinitialized with the new conversation's history
+  </Card>
+  <Card title="History caching" icon="database">
+    Message history is loaded once per conversation and cached in the chat session
+  </Card>
+  <Card title="Concurrent safety" icon="lock">
+    Mutex prevents race conditions when multiple messages are sent rapidly
+  </Card>
+  <Card title="Resource cleanup" icon="broom">
+    The base class provides a `close()` method to cancel ongoing operations when needed
+  </Card>
+</CardGroup>
+
+## Cleanup and lifecycle
+
+The base class manages coroutine lifecycle:
+
+```kotlin BaseAIModel.kt
+protected val coroutineScope = CoroutineScope(
+    SupervisorJob() + Dispatchers.Default + exceptionHandler
+)
+
+fun close() {
+    coroutineScope.cancel()
+}
+```
+
+<Tip>
+  Call `close()` when the AI model is no longer needed to properly clean up resources and cancel any ongoing streaming operations.
+</Tip>

@@ -1,0 +1,249 @@
+---
+title: AI models
+description: Available Gemini models and their characteristics
+---
+
+GemAI supports multiple Google Gemini AI models, each optimized for different use cases. You can select the model that best fits your needs based on speed, capability, and task complexity.
+
+## Available models
+
+The application provides access to three Gemini models through the `AIModel` enum:
+
+```kotlin UserConfig.kt
+enum class AIModel(val modelName: String, val number: Int) {
+    GEMINI_2_0_FLASH_EXP("gemini-2.0-flash-exp", 0),
+    GEMINI_1_5_FLASH("gemini-1.5-flash", 1),
+    GEMINI_1_5_PRO("gemini-1.5-pro-latest", 2)
+}
+```
+
+<Info>
+  Each model has a unique identifier number used for persistence and a model name that corresponds to the Google AI API endpoint.
+</Info>
+
+## Model characteristics
+
+<Tabs>
+  <Tab title="Gemini 2.0 Flash Exp">
+    ### Gemini 2.0 Flash (Experimental)
+    
+    **Model ID:** `gemini-2.0-flash-exp`
+    
+    **Number:** `0`
+    
+    This is the experimental version of Gemini's latest 2.0 Flash model, offering cutting-edge capabilities and performance improvements.
+    
+    **Best for:**
+    - Testing new AI features
+    - Accessing latest model improvements
+    - Experimental applications
+    
+    <Note>
+      As an experimental model, behavior may change as Google refines the model. Use this for testing new capabilities before they become stable.
+    </Note>
+  </Tab>
+  
+  <Tab title="Gemini 1.5 Flash">
+    ### Gemini 1.5 Flash
+    
+    **Model ID:** `gemini-1.5-flash`
+    
+    **Number:** `1`
+    
+    The default model for GemAI, optimized for fast responses with good quality.
+    
+    **Best for:**
+    - Quick responses
+    - General-purpose chat
+    - Everyday interactions
+    - Resource-efficient operations
+    
+    <Tip>
+      This is the default model in the application. It provides the best balance of speed and quality for most use cases.
+    </Tip>
+  </Tab>
+  
+  <Tab title="Gemini 1.5 Pro">
+    ### Gemini 1.5 Pro
+    
+    **Model ID:** `gemini-1.5-pro-latest`
+    
+    **Number:** `2`
+    
+    The most capable model with enhanced reasoning and understanding.
+    
+    **Best for:**
+    - Complex reasoning tasks
+    - Detailed analysis
+    - Advanced problem-solving
+    - Higher quality responses
+    
+    <Note>
+      Pro models may have longer response times but provide more thorough and nuanced answers.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Model selection
+
+Models are configured through the `UserConfig` data class:
+
+```kotlin UserConfig structure
+data class UserConfig(
+    val model: AIModel,
+    val apiKey: String?,
+    val hasApiKey: Boolean
+) {
+    companion object {
+        val DEFAULT = UserConfig(
+            model = AIModel.GEMINI_1_5_FLASH,
+            apiKey = null,
+            hasApiKey = false
+        )
+    }
+}
+```
+
+### Default configuration
+
+The application defaults to Gemini 1.5 Flash for optimal performance:
+
+```kotlin
+val config = UserConfig.DEFAULT
+// model = AIModel.GEMINI_1_5_FLASH
+```
+
+## Retrieving models from storage
+
+You can convert stored model numbers back to enum values using the `fromNum()` method:
+
+```kotlin Model conversion
+val modelNumber = 1
+val model = AIModel.fromNum(modelNumber)
+// Returns: AIModel.GEMINI_1_5_FLASH
+```
+
+<Accordion title="Model number mapping">
+  The `fromNum()` method provides safe conversion with fallback:
+  
+  ```kotlin
+  companion object {
+      fun fromNum(id: Int?): AIModel {
+          return when (id) {
+              0 -> GEMINI_2_0_FLASH_EXP
+              1 -> GEMINI_1_5_FLASH
+              2 -> GEMINI_1_5_PRO
+              else -> GEMINI_1_5_FLASH  // Default fallback
+          }
+      }
+  }
+  ```
+  
+  If an invalid or null ID is provided, the method defaults to Gemini 1.5 Flash.
+</Accordion>
+
+## Model initialization
+
+The application loads the selected model through the `BaseAIModel` class:
+
+```kotlin BaseAIModel.kt
+abstract class BaseAIModel(private val datastoreRepository: DatastoreRepository) {
+    
+    protected var modelName: String = AIModel.GEMINI_1_5_FLASH.modelName
+        private set
+    
+    init {
+        coroutineScope.launch {
+            val deferredModelName = async { datastoreRepository.getModel().modelName }
+            modelName = deferredModelName.await()
+        }
+    }
+    
+    protected val geminiAIModel: GenerativeModel by lazy {
+        getGenerativeModel()
+    }
+}
+```
+
+<Info>
+  Model configuration is loaded asynchronously from the datastore repository during initialization, ensuring the correct model is used for all subsequent requests.
+</Info>
+
+## Model builder configuration
+
+The actual Google AI model instance is created using the model builder:
+
+```kotlin Creating the generative model
+protected open fun getGenerativeModel(): GenerativeModel {
+    return modelBuilder
+        .setApiKey(apiKey)
+        .setModel(modelName)
+        .build()
+}
+```
+
+## Changing models at runtime
+
+To switch models, you need to:
+
+1. **Update user configuration** with the new model selection
+2. **Save to datastore** so it persists across sessions
+3. **Reinitialize** the AI model instance
+
+<CodeGroup>
+```kotlin Update configuration
+val newConfig = userConfig.copy(
+    model = AIModel.GEMINI_1_5_PRO
+)
+datastoreRepository.saveModel(newConfig.model)
+```
+
+```kotlin Access model name
+val modelName = AIModel.GEMINI_1_5_PRO.modelName
+// Returns: "gemini-1.5-pro-latest"
+```
+</CodeGroup>
+
+## Model comparison
+
+<CardGroup cols={3}>
+  <Card title="2.0 Flash Exp" icon="flask">
+    Experimental features, latest capabilities, subject to change
+  </Card>
+  <Card title="1.5 Flash" icon="bolt">
+    Fast responses, balanced quality, recommended for most users
+  </Card>
+  <Card title="1.5 Pro" icon="star">
+    Advanced reasoning, highest quality, longer response times
+  </Card>
+</CardGroup>
+
+## API key requirements
+
+All models require a valid Google AI API key to function:
+
+```kotlin
+data class UserConfig(
+    val model: AIModel,
+    val apiKey: String?,
+    val hasApiKey: Boolean
+)
+```
+
+<Tip>
+  The application includes a default API key for testing, but you should configure your own API key in production for better rate limits and control.
+</Tip>
+
+## Model persistence
+
+Your selected model is stored in Android DataStore and automatically loaded on app startup:
+
+```kotlin
+// Retrieve stored model
+val storedModel = datastoreRepository.getModel()
+
+// Save new model selection
+datastoreRepository.saveModel(AIModel.GEMINI_2_0_FLASH_EXP)
+```
+
+This ensures your model preference persists across app restarts and maintains consistency throughout your chat sessions.

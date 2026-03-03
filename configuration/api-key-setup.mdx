@@ -1,0 +1,160 @@
+---
+title: API key setup
+description: Configure and validate your Google Gemini API key for GemAI
+---
+
+GemAI requires a valid Google Gemini API key to communicate with the AI models. This guide walks you through obtaining, configuring, and validating your API key.
+
+## Getting your API key
+
+<Steps>
+  <Step title="Visit Google AI Studio">
+    Navigate to [Google AI Studio](https://aistudio.google.com/app/apikey) to generate your API key.
+  </Step>
+  
+  <Step title="Create or select a project">
+    Choose an existing Google Cloud project or create a new one to associate with your API key.
+  </Step>
+  
+  <Step title="Generate the API key">
+    Click "Create API Key" and copy the generated key. Store it securely as you'll need it to configure GemAI.
+  </Step>
+</Steps>
+
+<Warning>
+  Never commit your API key to version control or share it publicly. Treat it like a password.
+</Warning>
+
+## Saving the API key
+
+GemAI uses the `SaveApiKeyUseCase` to securely store your API key in the app's DataStore. The key is persisted locally and encrypted by the Android system.
+
+```kotlin SaveApiKeyUseCase.kt
+class SaveApiKeyUseCase
+@Inject
+constructor(
+    private val apiKeyRepository: ApiKeyRepository,
+    @Dispatcher(GemAIDispatchers.IO) private val dispatcher: CoroutineDispatcher,
+) : BaseUseCase<String, Result<Unit, ApiKeyError>> {
+    override suspend fun perform(parms: String): Result<Unit, ApiKeyError> =
+        withContext(dispatcher) { apiKeyRepository.saveApiKey(parms) }
+}
+```
+
+The repository implementation stores the key in Protocol Buffers format:
+
+```kotlin DatastoreRepositoryImpl.kt
+override suspend fun saveApiKey(apiKey: String) {
+    dataStore.updateData { config -> 
+        config.toBuilder().setApiKey(apiKey).build() 
+    }
+}
+```
+
+## Retrieving the API key
+
+To retrieve the stored API key, GemAI uses the `GetApiKeyUseCase`:
+
+```kotlin GetApiKeyUseCase.kt
+class GetApiKeyUseCase
+@Inject
+constructor(
+    private val apiKeyRepository: ApiKeyRepository,
+    @Dispatcher(GemAIDispatchers.IO) private val dispatcher: CoroutineDispatcher,
+) : BaseUseCase<Unit, Result<String, ApiKeyError>> {
+    override suspend fun perform(): Result<String, ApiKeyError> =
+        withContext(dispatcher) { apiKeyRepository.getApiKey() }
+}
+```
+
+## Validating the API key
+
+Before saving an API key, you should validate it to ensure it works correctly. GemAI provides a `testKey()` function in the `ModelBuilder` class:
+
+```kotlin ModelBuilder.kt
+suspend fun testKey(key: String): Boolean {
+    return try {
+        GenerativeModel(apiKey = key, modelName = AIModel.GEMINI_1_5_FLASH.modelName)
+            .generateContent("Hi, how are you?")
+        true
+    } catch (e: Exception) {
+        e.printStackTrace()
+        false
+    }
+}
+```
+
+<Info>
+  The validation function sends a simple test message to the Gemini API using the `gemini-1.5-flash` model. If the request succeeds, the key is valid.
+</Info>
+
+### How it works
+
+The `testKey()` function:
+
+1. Creates a temporary `GenerativeModel` instance with the provided API key
+2. Sends a test prompt ("Hi, how are you?") to the Gemini API
+3. Returns `true` if the request succeeds, `false` if an exception occurs
+
+## User configuration
+
+The API key is stored as part of the `UserConfig` data class:
+
+```kotlin UserConfig.kt
+data class UserConfig(
+    val model: AIModel, 
+    val apiKey: String?, 
+    val hasApiKey: Boolean
+) {
+    companion object {
+        val DEFAULT = UserConfig(
+            model = AIModel.GEMINI_1_5_FLASH, 
+            apiKey = null, 
+            hasApiKey = false
+        )
+    }
+}
+```
+
+<ParamField path="apiKey" type="String?">
+  The stored API key, or `null` if not yet configured
+</ParamField>
+
+<ParamField path="hasApiKey" type="Boolean">
+  Flag indicating whether a valid API key has been saved
+</ParamField>
+
+<ParamField path="model" type="AIModel">
+  The selected AI model to use with the API key
+</ParamField>
+
+## Security best practices
+
+<Note>
+  Follow these guidelines to keep your API key secure:
+</Note>
+
+- **Never hardcode API keys** in your source code
+- **Use environment variables** or secure storage mechanisms during development
+- **Rotate keys regularly** if you suspect they've been compromised
+- **Monitor usage** in the Google Cloud Console to detect unauthorized access
+- **Enable billing alerts** to catch unexpected API usage
+
+## Troubleshooting
+
+### Invalid API key error
+
+If the `testKey()` function returns `false`, verify:
+
+- The API key is copied correctly without extra spaces
+- The API key is enabled in Google Cloud Console
+- The Generative AI API is enabled for your project
+- Your Google Cloud project has billing enabled
+
+### Key not persisting
+
+If your API key doesn't persist between app sessions:
+
+- Check that DataStore has write permissions
+- Verify the app isn't clearing data on restart
+- Ensure the `SaveApiKeyUseCase` is being called successfully

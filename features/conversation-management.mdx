@@ -1,0 +1,278 @@
+---
+title: Conversation management
+description: Create, view, and manage conversations in GemAI
+---
+
+GemAI organizes your interactions with Gemini AI into conversations. Each conversation maintains its own message history and context, allowing you to have multiple distinct chat sessions.
+
+## Conversation data model
+
+Conversations are represented by a lightweight data structure:
+
+```kotlin Conversation.kt
+data class Conversation(
+    val id: Long = 0,
+    val timestamp: Long,
+    val title: String?,
+    val lastMessageTimestamp: Long
+)
+```
+
+<Info>
+  Conversations track both creation timestamp and last message timestamp, enabling proper sorting and display of recent activity.
+</Info>
+
+## Creating conversations
+
+You create new conversations through the `CreateConversationUseCase`, which accepts an initial title:
+
+```kotlin CreateConversationUseCase.kt
+class CreateConversationUseCase @Inject constructor(
+    private val chatRepository: ChatRepository
+) : BaseUseCase<String, Result<Conversation, RequestError>> {
+    override suspend fun perform(params: String): Result<Conversation, RequestError> {
+        return chatRepository.createConversation(params)
+    }
+}
+```
+
+### Usage example
+
+<CodeGroup>
+```kotlin Creating a conversation
+// Inject the use case
+val createConversation: CreateConversationUseCase
+
+// Create with initial title
+val result = createConversation.perform("My First Chat")
+
+when (result) {
+    is Result.Success -> {
+        val conversation = result.data
+        println("Created conversation: ${conversation.id}")
+    }
+    is Result.Error -> {
+        println("Failed: ${result.error}")
+    }
+}
+```
+
+```kotlin Repository interface
+interface ChatRepository {
+    suspend fun createConversation(title: String): Result<Conversation, RequestError>
+}
+```
+</CodeGroup>
+
+<Tip>
+  The title parameter is used as the initial conversation title, but it can be updated later using AI-generated titles based on the first message.
+</Tip>
+
+## Retrieving conversations
+
+You can access all your conversations as a reactive stream using `GetConversationsUseCase`:
+
+```kotlin GetConversationsUseCase.kt
+class GetConversationsUseCase @Inject constructor(
+    private val chatRepository: ChatRepository
+) : BaseUseCase<Unit, List<Conversation>> {
+    override fun performStreaming(): Flow<List<Conversation>> {
+        return chatRepository.getConversations()
+    }
+}
+```
+
+### Reactive conversation list
+
+The streaming approach provides automatic UI updates when conversations change:
+
+```kotlin Example: Observing conversations
+getConversationsUseCase.performStreaming()
+    .collect { conversations ->
+        // UI automatically updates with latest conversation list
+        conversationList.value = conversations
+    }
+```
+
+<Note>
+  The Flow automatically emits new values when conversations are added, modified, or deleted, keeping your UI in sync with the database.
+</Note>
+
+## Viewing conversation messages
+
+To display messages within a conversation, use the `GetConversationMessagesUseCase`:
+
+```kotlin GetConversationMessagesUseCase.kt
+class GetConversationMessagesUseCase @Inject constructor(
+    private val chatRepository: ChatRepository
+) : BaseUseCase<Long, List<Message>> {
+    override fun performStreaming(params: Long): Flow<List<Message>> {
+        return chatRepository.getConversationMessages(params)
+    }
+}
+```
+
+### Example implementation
+
+<Tabs>
+  <Tab title="Streaming messages">
+    ```kotlin
+    val conversationId = 123L
+    
+    getConversationMessagesUseCase.performStreaming(conversationId)
+        .collect { messages ->
+            // Display messages in UI
+            messageList.value = messages
+        }
+    ```
+  </Tab>
+  <Tab title="Repository interface">
+    ```kotlin
+    interface ChatRepository {
+        fun getConversationMessages(conversationId: Long): Flow<List<Message>>
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Updating conversation titles
+
+GemAI offers two ways to update conversation titles:
+
+### AI-generated titles
+
+The application can automatically generate descriptive titles based on the first message:
+
+```kotlin UpdateChatTitleUseCase.kt
+data class UpdateChatTitleParams(
+    val prompt: String,
+    val conversationId: Long
+)
+
+class UpdateChatTitleUseCase @Inject constructor(
+    private val chatRepository: ChatRepository,
+    @Dispatcher(GemAIDispatchers.IO) private val dispatcher: CoroutineDispatcher
+) : BaseUseCase<UpdateChatTitleParams, Result<Unit, RequestError>> {
+    override suspend fun perform(params: UpdateChatTitleParams): Result<Unit, RequestError> =
+        withContext(dispatcher) {
+            chatRepository.updateChatTitle(
+                conversationId = params.conversationId,
+                prompt = params.prompt
+            )
+        }
+}
+```
+
+<Accordion title="How AI title generation works">
+  The `updateChatTitle` method in the repository uses the Gemini AI model to analyze your first prompt and generate a concise, descriptive title. This happens automatically after you send the first message in a new conversation.
+
+  ```kotlin
+  suspend fun updateChatTitle(
+      conversationId: Long,
+      prompt: String
+  ): Result<Unit, RequestError>
+  ```
+</Accordion>
+
+### Manual title updates
+
+You can also set custom titles manually:
+
+```kotlin
+interface ChatRepository {
+    suspend fun updateConversationTitle(
+        conversationId: Long,
+        title: String
+    ): Result<Unit, RequestError>
+}
+```
+
+## Deleting conversations
+
+Remove conversations and all associated messages using the `DeleteChatUseCase`:
+
+```kotlin DeleteChatUseCase.kt
+class DeleteChatUseCase @Inject constructor(
+    private val chatRepository: ChatRepository
+) : BaseUseCase<Long, Result<Unit, RequestError>> {
+    override suspend fun perform(params: Long): Result<Unit, RequestError> {
+        return chatRepository.deleteChat(chatId = params)
+    }
+}
+```
+
+### Delete operation example
+
+```kotlin
+val conversationId = 123L
+
+val result = deleteChatUseCase.perform(conversationId)
+
+when (result) {
+    is Result.Success -> println("Conversation deleted")
+    is Result.Error -> println("Delete failed: ${result.error}")
+}
+```
+
+<Note>
+  Due to cascade deletion constraints in the database, deleting a conversation automatically removes all its associated messages.
+</Note>
+
+## Complete conversation lifecycle
+
+Here's how a typical conversation progresses through its lifecycle:
+
+<Steps>
+  <Step title="Creation">
+    Create a new conversation with an initial title
+    ```kotlin
+    createConversationUseCase.perform("New Chat")
+    ```
+  </Step>
+  
+  <Step title="First message">
+    Send the first message to start the interaction
+    ```kotlin
+    sendMessageUseCase.perform(message)
+    ```
+  </Step>
+  
+  <Step title="Title generation">
+    AI generates a descriptive title based on the first prompt
+    ```kotlin
+    updateChatTitleUseCase.perform(
+        UpdateChatTitleParams(prompt, conversationId)
+    )
+    ```
+  </Step>
+  
+  <Step title="Ongoing interaction">
+    Continue sending and receiving messages in the conversation
+  </Step>
+  
+  <Step title="Deletion (optional)">
+    Delete the conversation when no longer needed
+    ```kotlin
+    deleteChatUseCase.perform(conversationId)
+    ```
+  </Step>
+</Steps>
+
+## Conversation persistence
+
+All conversations are stored in the Room database with proper relationships:
+
+- **Conversations table** - Stores conversation metadata
+- **Messages table** - Links to conversations via foreign key
+- **Cascade deletion** - Ensures data integrity when conversations are removed
+
+```kotlin
+ForeignKey(
+    entity = ConversationEntity::class,
+    parentColumns = ["id"],
+    childColumns = ["conversationId"],
+    onDelete = ForeignKey.CASCADE
+)
+```
+
+This architecture ensures your conversation history is reliably maintained across app restarts while keeping the data model clean and efficient.
