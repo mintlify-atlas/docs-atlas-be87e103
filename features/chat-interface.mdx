@@ -155,3 +155,98 @@ message.update(status = MessageStatus.FAILED)
 ```
 
 You can retry failed messages by resubmitting them through the `SendMessageUseCase`, which handles the complete message lifecycle.
+
+## Startup prompts
+
+GemAI provides smart startup prompts to help you begin conversations quickly. These pre-built suggestions appear when you first launch the app or start a new conversation.
+
+### Prompt structure
+
+Each startup prompt includes text, an icon, and creation timestamp:
+
+```kotlin StartUpPrompt.kt
+data class StartUpPrompt(
+    val id: Long = 0,
+    val text: String,
+    val icon: PromptIcon = PromptIcon.QUESTION_MARK,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+```
+
+### Prompt categories
+
+Prompts are organized by icon type to indicate their category:
+
+<CardGroup cols={2}>
+  <Card title="CODE" icon="code">
+    Coding-related prompts and programming questions
+  </Card>
+  <Card title="LITERATURE" icon="book">
+    Writing, poetry, and creative content prompts
+  </Card>
+  <Card title="TRANSLATION" icon="language">
+    Language translation and linguistic prompts
+  </Card>
+  <Card title="SCIENCE" icon="flask">
+    Scientific and technical questions
+  </Card>
+</CardGroup>
+
+<Accordion title="View all prompt categories">
+  GemAI supports 21 different prompt categories including:
+  - **CODE** - Programming and development
+  - **LITERATURE** - Writing and creative content
+  - **TRANSLATION** - Language and translation
+  - **SCIENCE** - Scientific topics
+  - **ART** - Design and artistic prompts
+  - **EDUCATION** - Learning and teaching
+  - **HEALTH** - Wellness and medical
+  - **ENTERTAINMENT** - Media and fun
+  - **FINANCE** - Business and money
+  - **TRAVEL** - Exploration and trips
+  - **FOOD** - Culinary and recipes
+  - **FITNESS** - Physical activity
+  - **ENVIRONMENT** - Sustainability
+  - **HISTORY** - Historical topics
+  - **TECHNOLOGY** - Gadgets and tech
+  - And more...
+</Accordion>
+
+### Default prompts
+
+The app includes four default startup prompts:
+
+```kotlin PromptEntity.kt
+val DefaultPrompts = listOf(
+    PromptEntity(text = "Translate text to Spanish", icon = PromptIcon.TRANSLATION),
+    PromptEntity(text = "Write a short poem about nature", icon = PromptIcon.LITERATURE),
+    PromptEntity(text = "Create a Python function for sorting a list", icon = PromptIcon.CODE),
+    PromptEntity(text = "Generate a script for a short play", icon = PromptIcon.LITERATURE),
+)
+```
+
+### Retrieving prompts
+
+Use the `GetPromptsUseCase` to fetch available prompts:
+
+```kotlin GetPromptsUseCase.kt
+class GetPromptsUseCase @Inject constructor(
+    private val chatRepository: ChatRepository
+) : BaseUseCase<Unit, List<StartUpPrompt>> {
+    override fun performStreaming(): Flow<List<StartUpPrompt>> {
+        return chatRepository.getPrompts()
+    }
+}
+```
+
+<Info>
+  Prompts are stored in the Room database and can be customized by adding new entries to the `prompts` table.
+</Info>
+
+### Using prompts in the UI
+
+When you tap a startup prompt, its text is automatically inserted into the message input field, ready to send to the AI model. This provides a quick way to start meaningful conversations without typing.
+
+<Tip>
+  You can extend the prompt system by adding custom prompts to the database with your preferred categories and icons.
+</Tip>
