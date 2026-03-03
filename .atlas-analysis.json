@@ -1,0 +1,66 @@
+{
+  "projectType": "saas",
+  "projectName": "GemAI",
+  "projectDescription": "An Android chat application powered by Google Gemini AI with persistent conversation history and multiple model support.",
+  "theme": "palm",
+  "primaryColor": "#4285F4",
+  "lightColor": "#E8F0FE",
+  "darkColor": "#1A73E8",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "installation",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Core Features",
+        "pages": [
+          "features/chat-interface",
+          "features/conversation-management",
+          "features/ai-models",
+          "features/message-streaming"
+        ]
+      },
+      {
+        "group": "Configuration",
+        "pages": [
+          "configuration/api-key-setup",
+          "configuration/model-selection",
+          "configuration/system-prompts",
+          "configuration/safety-settings"
+        ]
+      },
+      {
+        "group": "Developer Guide",
+        "pages": [
+          "developer/architecture",
+          "developer/core-components",
+          "developer/data-layer",
+          "developer/extending"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Google Gemini AI integration with multiple model support (2.0 Flash, 1.5 Flash, 1.5 Pro)",
+    "Real-time message streaming for responsive chat experience",
+    "Persistent conversation history with Room Database",
+    "Clean Architecture with MVVM pattern and Jetpack Compose UI",
+    "Dark mode support and customizable system prompts",
+    "API key validation and secure storage with DataStore"
+  ],
+  "publicApiSurface": [
+    "GemAIModel.sendMessage(conversationId: Long, content: String): Flow<GenerateContentResponse>",
+    "ModelBuilder.Builder().setApiKey().setModel().setConfig().build(): GenerativeModel",
+    "SendMessageUseCase.invoke(conversationId: Long, content: String): Flow<Result<Message>>",
+    "CreateConversationUseCase.invoke(title: String?): Result<Long>",
+    "GetConversationsUseCase.invoke(): Flow<List<Conversation>>",
+    "UpdateChatTitleUseCase.invoke(conversationId: Long, title: String): Result<Unit>",
+    "GetApiKeyUseCase.invoke(): Flow<UserConfig>",
+    "SaveApiKeyUseCase.invoke(apiKey: String): Result<Unit>"
+  ]
+}
